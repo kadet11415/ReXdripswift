@@ -72,11 +72,51 @@ enum OttaiParser {
     /// version for known families. For the rest we try both sizes and count how
     /// many records look valid (current >= 1000, temperature <= 45). The wrong size
     /// gives nonsense like 505 °C, so it loses.
-    static func chooseRecordSize(_ payload: [UInt8], deviceVersion: String) -> Int {
+    ///
+    /// A live packet is 24 bytes: a header, one 9-byte record and 7 bytes of padding.
+    /// The same 24 bytes also fit a header and two 8-byte records. Two records win over
+    /// one, so a live packet is always read as 8-byte. Then the second "record" is only
+    /// padding and gets rejected, and the live path (which uses only the last record)
+    /// never sees the real one. The reading for that minute is lost. So a packet this
+    /// small must not choose the size. Pass `learned` once `decisiveRecordSize` has
+    /// found it for this sensor.
+    static func chooseRecordSize(_ payload: [UInt8], deviceVersion: String, learned: Int? = nil) -> Int {
         if let confirmed = confirmedRecordSize(deviceVersion) { return confirmed }
-        let nine = vendorValidCount(payload, recSize: bleRecordSizeE12, curLo: 0, tempLo: 7)
-        let eight = vendorValidCount(payload, recSize: bleRecordSize, curLo: 4, tempLo: 6)
+        if let learned = learned, learned == bleRecordSize || learned == bleRecordSizeE12 { return learned }
+        let (nine, eight) = recordSizeEvidence(payload)
         return nine > eight ? bleRecordSizeE12 : bleRecordSize
+    }
+
+    /// How many valid records the packet has when read as 9-byte and as 8-byte records,
+    /// in that order. One function, so the choice, the proof test and the log all use
+    /// the same numbers.
+    static func recordSizeEvidence(_ payload: [UInt8]) -> (nine: Int, eight: Int) {
+        (
+            vendorValidCount(payload, recSize: bleRecordSizeE12, curLo: 0, tempLo: 7),
+            vendorValidCount(payload, recSize: bleRecordSize, curLo: 4, tempLo: 6)
+        )
+    }
+
+    /// How many valid records the winner needs before we trust it. A 24-byte live
+    /// packet has at most two, which is not enough. A history page or a polled live
+    /// read has nine or more.
+    private static let minDecisiveRecords = 3
+    /// How many more records the winner needs than the loser. One extra record can
+    /// come from padding by chance.
+    private static let decisiveMargin = 2
+
+    /// The record size this packet proves, or nil if it proves nothing.
+    ///
+    /// A known device version proves it without reading the packet. Otherwise the
+    /// winner needs at least `minDecisiveRecords` valid records and a lead of
+    /// `decisiveMargin`. A live packet can never do that; a history page or a
+    /// nine-record live read always does.
+    static func decisiveRecordSize(_ payload: [UInt8], deviceVersion: String) -> Int? {
+        if let confirmed = confirmedRecordSize(deviceVersion) { return confirmed }
+        let (nine, eight) = recordSizeEvidence(payload)
+        if nine >= minDecisiveRecords && nine - eight >= decisiveMargin { return bleRecordSizeE12 }
+        if eight >= minDecisiveRecords && eight - nine >= decisiveMargin { return bleRecordSize }
+        return nil
     }
 
     /// Record size for firmware we know; nil if unknown.
@@ -121,10 +161,10 @@ enum OttaiParser {
 
     /// Split a decrypted packet into 12-byte records. Extra bytes at the end are
     /// ignored. Returns an empty list if there are no records.
-    static func frameRecords(_ payload: [UInt8], deviceVersion: String = "") -> [[UInt8]] {
+    static func frameRecords(_ payload: [UInt8], deviceVersion: String = "", learned: Int? = nil) -> [[UInt8]] {
         if payload.count <= headerSize { return [] }
         let front = frontDataNo(payload)
-        let bleSize = chooseRecordSize(payload, deviceVersion: deviceVersion)
+        let bleSize = chooseRecordSize(payload, deviceVersion: deviceVersion, learned: learned)
         let nineByte = bleSize == bleRecordSizeE12
         let bodyLen = payload.count - headerSize
         let count = bodyLen / bleSize

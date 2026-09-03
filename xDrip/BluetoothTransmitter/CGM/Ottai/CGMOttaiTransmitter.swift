@@ -144,6 +144,12 @@ final class CGMOttaiTransmitter: BluetoothTransmitter, CGMTransmitter {
     // MARK: - state that stays across reconnects
 
     private var lastDataNo = 0
+    // The record size (8 or 9 bytes) learned from this sensor. 0 until a big enough
+    // packet has shown it. A small live packet (one record) cannot tell the two sizes
+    // apart, so it must not choose. See OttaiParser.decisiveRecordSize.
+    private var learnedRecordSize = 0
+    // Log only once while packets keep disagreeing with the learned size.
+    private var recordSizeDisagreementLogged = false
     private var lastGlucoseAtMs: Int64 = 0
     private var lastLiveFrameAtMs: Int64 = 0
     private var lastLiveNotifyAtMs: Int64 = 0
@@ -212,6 +218,7 @@ final class CGMOttaiTransmitter: BluetoothTransmitter, CGMTransmitter {
 
         // load the saved state (restoreFromPersistence in the Kotlin)
         self.lastDataNo = OttaiRegistry.loadLastDataNo(canonical)
+        self.learnedRecordSize = OttaiRegistry.loadRecordSize(canonical)
         self.activatedMaxActiveMs = OttaiRegistry.loadAcceptedMaxActive(canonical)
         if materials.activeTimeMs > 0 {
             OttaiRegistry.saveProvisionalActiveTime(canonical, 0)
@@ -785,7 +792,8 @@ final class CGMOttaiTransmitter: BluetoothTransmitter, CGMTransmitter {
             trace("%{public}@ decrypt failed len=%{public}d", log: log, category: ConstantsLog.categoryCGMOttai, type: .error, kind, cipher.count)
             return
         }
-        let records = OttaiParser.frameRecords(payload, deviceVersion: materials.deviceVersion)
+        learnRecordSize(payload)
+        let records = OttaiParser.frameRecords(payload, deviceVersion: materials.deviceVersion, learned: heldRecordSize())
         if records.isEmpty {
             trace("%{public}@ no records payloadLen=%{public}d", log: log, category: ConstantsLog.categoryCGMOttai, type: .info, kind, payload.count)
             if live {
@@ -864,7 +872,7 @@ final class CGMOttaiTransmitter: BluetoothTransmitter, CGMTransmitter {
     /// the live buffer and fetch history up to it. No glucose is published.
     private func handleEndedLiveBuffer(_ cipher: [UInt8]) {
         guard let payload = OttaiCrypto.decryptPayload(cipher, sessionKeyHex: sessionKeyHex) else { return }
-        let latest = OttaiParser.frameRecords(payload, deviceVersion: materials.deviceVersion)
+        let latest = OttaiParser.frameRecords(payload, deviceVersion: materials.deviceVersion, learned: heldRecordSize())
             .map(OttaiParser.parseRecord).max { $0.dataNo < $1.dataNo }
         guard let latest = latest else {
             trace("ended live buffer has no records", log: log, category: ConstantsLog.categoryCGMOttai, type: .info)
@@ -885,6 +893,35 @@ final class CGMOttaiTransmitter: BluetoothTransmitter, CGMTransmitter {
             let start = max(0, end - Self.initialBackfillRecords)
             _ = self.requestHistoryRange("ended-backfill", start: start, count: end - start)
         }
+    }
+
+    /// The learned layout to frame with, or nil while nothing has proved one.
+    private func heldRecordSize() -> Int? { learnedRecordSize > 0 ? learnedRecordSize : nil }
+
+    /// Learn the record size from a packet that is big enough to prove it. If a packet
+    /// would choose a different size, log it once, with the counts for both sizes, so the
+    /// log shows why. Only once, so a strange sensor cannot fill the log.
+    private func learnRecordSize(_ payload: [UInt8]) {
+        if let decisive = OttaiParser.decisiveRecordSize(payload, deviceVersion: materials.deviceVersion) {
+            recordSizeDisagreementLogged = false
+            if decisive != learnedRecordSize {
+                let previous = learnedRecordSize
+                learnedRecordSize = decisive
+                OttaiRegistry.saveRecordSize(sensorId, decisive)
+                trace("record size learned=%{public}d previous=%{public}d len=%{public}d", log: log, category: ConstantsLog.categoryCGMOttai, type: .info, decisive, previous, payload.count)
+            }
+            return
+        }
+        guard learnedRecordSize > 0 else { return }
+        let wouldChoose = OttaiParser.chooseRecordSize(payload, deviceVersion: materials.deviceVersion)
+        if wouldChoose == learnedRecordSize {
+            recordSizeDisagreementLogged = false
+            return
+        }
+        if recordSizeDisagreementLogged { return }
+        recordSizeDisagreementLogged = true
+        let (nine, eight) = OttaiParser.recordSizeEvidence(payload)
+        trace("record size held=%{public}d payloadWould=%{public}d nine=%{public}d eight=%{public}d len=%{public}d", log: log, category: ConstantsLog.categoryCGMOttai, type: .info, learnedRecordSize, wouldChoose, nine, eight, payload.count)
     }
 
     // MARK: - one reading and all its checks (same order as the Kotlin)

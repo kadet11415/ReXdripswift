@@ -54,6 +54,10 @@ enum OttaiRegistry {
         static let retainTimePrefix = "ottai_retain_time_"
         static let deviceVersionPrefix = "ottai_device_version_"
         static let lastDataNoPrefix = "ottai_last_datano_"
+        // The record size (8 or 9 bytes) learned from this sensor, 0 until a big enough
+        // packet has shown it. Saved, so the size is right from the first packet of the
+        // next session too. See OttaiParser.decisiveRecordSize.
+        static let recordSizePrefix = "ottai_record_size_"
         static let continuityBaselinePrefix = "ottai_continuity_baseline_"
         static let deviceIdPrefix = "ottai_device_id_"
         static let activationAttemptedPrefix = "ottai_act_tried_"
@@ -286,6 +290,14 @@ enum OttaiRegistry {
         d.set(dataNo, forKey: K.lastDataNoPrefix + canonical(id))
     }
 
+    static func loadRecordSize(_ id: String) -> Int {
+        d.integer(forKey: K.recordSizePrefix + canonical(id))
+    }
+
+    static func saveRecordSize(_ id: String, _ size: Int) {
+        d.set(size, forKey: K.recordSizePrefix + canonical(id))
+    }
+
     /// The last good reading used by the spike filter. Saved so it is still there
     /// after an app restart. Stored as "dataNo,sampleMs,mmol,rawCurrent".
     struct ContinuityBaseline {
@@ -334,7 +346,7 @@ enum OttaiRegistry {
         writeRecords(K.sensorsSet, persistedRecords().filter { !$0.matchesId(id) })
         for prefix in [K.keyAPrefix, K.methodPrefix, K.coeffPrefix, K.activeTimePrefix,
                        K.provisionalActiveTimePrefix, K.activeExpirePrefix, K.retainTimePrefix,
-                       K.preheatPeriodPrefix, K.deviceVersionPrefix, K.lastDataNoPrefix,
+                       K.preheatPeriodPrefix, K.deviceVersionPrefix, K.lastDataNoPrefix, K.recordSizePrefix,
                        K.deviceIdPrefix, K.activationAttemptedPrefix, K.v3BootstrapPendingPrefix] {
             d.removeObject(forKey: prefix + id)
         }
