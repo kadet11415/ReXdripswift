@@ -429,7 +429,8 @@ final class BluetoothPeripheralDetailState: NSObject, ObservableObject {
         case .MedtrumTouchCareNanoType:
             return makeMedtrumTouchCareNanoSections(bluetoothPeripheral: bluetoothPeripheral)
         case .AidexType:
-            return makeAidexSections(bluetoothPeripheral: bluetoothPeripheral)
+            let aidexTx = bluetoothPeripheralManager?.getBluetoothTransmitter(for: bluetoothPeripheral, createANewOneIfNecesssary: false) as? CGMAidexTransmitter
+            return makeAidexSections(bluetoothPeripheral: bluetoothPeripheral, aidexTransmitter: aidexTx)
         case .M5StackType:
             return makeM5StackSections(bluetoothPeripheral: bluetoothPeripheral, includesSpecificM5StackSection: true)
         case .M5StickCType:
@@ -2305,7 +2306,7 @@ private extension BluetoothPeripheralDetailState {
         ]
     }
 
-    func makeAidexSections(bluetoothPeripheral: BluetoothPeripheral) -> [BluetoothPeripheralDetailSection] {
+    func makeAidexSections(bluetoothPeripheral: BluetoothPeripheral, aidexTransmitter: CGMAidexTransmitter?) -> [BluetoothPeripheralDetailSection] {
         guard let aidex = bluetoothPeripheral as? Aidex else { return [] }
 
         var infoRows: [BluetoothPeripheralDetailRow] = []
@@ -2315,6 +2316,24 @@ private extension BluetoothPeripheralDetailState {
         }
         if let model = aidex.modelName, !model.isEmpty {
             infoRows.append(row(id: "aidex-model", title: Texts_Common.model, detail: model))
+        }
+
+        // Battery level (from transmitter)
+        if let tx = aidexTransmitter, tx.batteryMillivolts > 0 {
+            let volts = String(format: "%.2f", Double(tx.batteryMillivolts) / 1000.0)
+            infoRows.append(row(id: "aidex-battery", title: "Battery", detail: "\(volts) V"))
+        }
+
+        // Sensor age / remaining (from transmitter)
+        if let tx = aidexTransmitter {
+            let ageHours = tx.sensorAgeHours
+            let remainingHours = tx.sensorRemainingHours
+            if ageHours > 0 {
+                infoRows.append(row(id: "aidex-age", title: "Sensor Age", detail: "\(ageHours)h"))
+            }
+            if remainingHours > 0 {
+                infoRows.append(row(id: "aidex-remaining", title: "Sensor Remaining", detail: "\(remainingHours)h"))
+            }
         }
 
         let isConnected = bluetoothPeripheral.blePeripheral.shouldconnect

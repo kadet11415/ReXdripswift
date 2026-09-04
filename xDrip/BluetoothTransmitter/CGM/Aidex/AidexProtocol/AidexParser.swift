@@ -47,7 +47,7 @@ enum AidexParser {
             opcode: opcode,
             timeOffsetMinutes: timeOffsetMinutes,
             glucoseMgDl: glucoseMgDl,
-            rawGlucosePacked: glucosePacked,
+            rawGlucosePacked: rawGlucose,
             i1: i1,
             i2: i2,
             crc16: crc16,

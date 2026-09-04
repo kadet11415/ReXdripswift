@@ -335,6 +335,7 @@
 		7DDD89BD4ECFCE7BDA8D3AE2 /* SettingsSharedUtilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = E64C4CC1DCC94C18B184021D /* SettingsSharedUtilities.swift */; };
 		8D0054E13048BF6B00DEF850 /* AidexDevicePickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D0054E03048BF6B00DEF850 /* AidexDevicePickerView.swift */; };
 		8D19B1C0E19C4797A99446C0 /* Aidex+CoreDataClass.swift in Sources */ = {isa = PBXBuildFile; fileRef = C56BCEA6F404483FA8F7F390 /* Aidex+CoreDataClass.swift */; };
+		8D6AFEEF304B6FD60030F2AF /* ConstantsAidex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D6AFEEE304B6FD60030F2AF /* ConstantsAidex.swift */; };
 		975C93EEE65C452EA91F5464 /* AESCFB.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF87C060359A4814B0441E66 /* AESCFB.swift */; };
 		9892A447281E46A19A2FC64C /* AidexSensor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B82F6AD75FE4C9092C0C3B6 /* AidexSensor.swift */; };
 		A10000000000000000000001 /* FollowerSettingsScreenFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* FollowerSettingsScreenFactory.swift */; };
@@ -1233,6 +1234,7 @@
 		85A7717D78964632A23ADC3A /* CGMAidexTransmitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CGMAidexTransmitter.swift; sourceTree = "<group>"; };
 		8CDAA8545D5544E0B448F5A1 /* BluetoothPeripheralManager+CGMAidexTransmitterDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BluetoothPeripheralManager+CGMAidexTransmitterDelegate.swift"; sourceTree = "<group>"; };
 		8D0054E03048BF6B00DEF850 /* AidexDevicePickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AidexDevicePickerView.swift; sourceTree = "<group>"; };
+		8D6AFEEE304B6FD60030F2AF /* ConstantsAidex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConstantsAidex.swift; sourceTree = "<group>"; };
 		9CAA0E71545842D9AEA53BE3 /* AidexCommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AidexCommandBuilder.swift; sourceTree = "<group>"; };
 		A20000000000000000000001 /* FollowerSettingsScreenFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FollowerSettingsScreenFactory.swift; sourceTree = "<group>"; };
 		A20000000000000000000002 /* NightscoutFollowerSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NightscoutFollowerSettings.swift; sourceTree = "<group>"; };
@@ -2611,6 +2613,13 @@
 			path = Models;
 			sourceTree = "<group>";
 		};
+		8D6AFEEC304B6F750030F2AF /* Constants */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Constants;
+			sourceTree = "<group>";
+		};
 		965EFAF230664A63AF0AD5DD /* AidexProtocol */ = {
 			isa = PBXGroup;
 			children = (
@@ -3060,6 +3069,7 @@
 				48C0E851274A3BB6D42C6F20 /* Frameworks */,
 				F8AC425B21ADEBD60078C348 /* Products */,
 				F85DC29B21CFCEB800B9F74A /* Recovered References */,
+				8D6AFEEC304B6F750030F2AF /* Constants */,
 			);
 			indentWidth = 4;
 			sourceTree = "<group>";
@@ -3407,6 +3417,7 @@
 				F8AF36142455C6F700B5977B /* ConstantsTrace.swift */,
 				F8FDFEAC260DE1B90047597D /* ConstantsUI.swift */,
 				47930E812BC5A001000BD8A1 /* ConstantsWidget.swift */,
+				8D6AFEEE304B6FD60030F2AF /* ConstantsAidex.swift */,
 			);
 			name = Constants;
 			path = xDrip/Constants;
@@ -4736,6 +4747,7 @@
 				F8177025248ED4DE00AA3600 /* Libre1DerivedAlgorithmParameters.swift in Sources */,
 				D40C3DA4277542C400111B73 /* TreatmentEntry+CoreDataClass.swift in Sources */,
 				F8EE3EB22B683B2100B27B96 /* Libre3HeartbeatBluetoothTransmitter.swift in Sources */,
+				8D6AFEEF304B6FD60030F2AF /* ConstantsAidex.swift in Sources */,
 				F8F9724723A69A8000C3F17D /* BluetoothPeripheralCategory.swift in Sources */,
 				F8B3A79522635A25004BA588 /* AlertType+CoreDataProperties.swift in Sources */,
 				F8AF11FA24B1FB3500AE5BA2 /* DexcomError.swift in Sources */,
