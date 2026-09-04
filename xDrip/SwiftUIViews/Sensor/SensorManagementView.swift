@@ -485,6 +485,8 @@ struct SensorManagementView: View {
             }
         case .Medtrum:
             warmupMinutes = nil
+        case .Aidex:
+            warmupMinutes = nil
         case .none:
             warmupMinutes = nil
         }
