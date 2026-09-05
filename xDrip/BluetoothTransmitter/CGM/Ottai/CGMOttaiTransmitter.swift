@@ -716,7 +716,13 @@ final class CGMOttaiTransmitter: BluetoothTransmitter, CGMTransmitter {
         if status < 0 { return }
         if OttaiConstants.commandNeedsActivation(status) {
             livePollTimer?.cancel(); livePollTimer = nil
-            if OttaiConstants.shouldStartActivation(commandStatus: status, explicitlyRequested: activationRequested),
+            // activationRequested is only in memory. If this object is destroyed and created
+            // again during a retry (the app came to the foreground, or a reconnect came in
+            // between), the flag is lost while the user's request is not finished. The saved
+            // flag "activation was requested for this sensor" survives that, so a new object
+            // still finishes the job instead of waiting for activation forever.
+            let explicitlyRequested = activationRequested || OttaiRegistry.loadActivationAttempted(sensorId)
+            if OttaiConstants.shouldStartActivation(commandStatus: status, explicitlyRequested: explicitlyRequested),
                actStep == .none, !pendingActivation {
                 activationRequested = false
                 trace("sensor command status=%{public}d and user requested activation; starting activation sequence", log: log, category: ConstantsLog.categoryCGMOttai, type: .info, status)
@@ -733,10 +739,22 @@ final class CGMOttaiTransmitter: BluetoothTransmitter, CGMTransmitter {
             if previous != 3 { startStreamingAfterCommandStatus() }
             return
         }
-        // 4 or more = the sensor has ended. We do not try to restart it. We read the
-        // live buffer once, only to learn the last dataNo, and then fetch the history
-        // up to it. No glucose is published from this read.
+        // 4 or more = the sensor has ended. Normally we do not try to restart it: we just read
+        // the live buffer once, to learn the last dataNo, and fetch the history up to it. But
+        // the same "invalid handle" quirk that sometimes rejects a maxActiveTime write during a
+        // normal activation can also flip an already-activated sensor back to "ended" (seen live:
+        // a sensor activated cleanly, then a repeated activation request failed the same write
+        // and the sensor reported ended 44 seconds later). While we are still inside the
+        // lifetime we told the sensor to run for, one recovery attempt is worth it before we
+        // give up on it as genuinely finished.
         livePollTimer?.cancel(); livePollTimer = nil
+        if OttaiConstants.shouldAttemptEndedSensorRecovery(commandStatus: status, activeTimeMs: warmupAnchorMs(), nowMs: nowMs()),
+           actStep == .none, !pendingActivation {
+            trace("sensor ended cmd=%{public}d but still within its lifetime — attempting recovery", log: log, category: ConstantsLog.categoryCGMOttai, type: .error, status)
+            activationRequested = false
+            afterDelay(0.25) { [weak self] in self?.requestActivationWithRediscovery() }
+            return
+        }
         trace("sensor ended cmd=%{public}d; no lifetime write will be attempted automatically", log: log, category: ConstantsLog.categoryCGMOttai, type: .error, status)
         afterDelay(0.5) { [weak self] in
             guard let self = self, self.commandStatus >= 4 else { return }
