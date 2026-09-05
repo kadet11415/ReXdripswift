@@ -40,6 +40,10 @@ final class BluetoothPeripheralsRouter: ObservableObject {
         path.append(BluetoothPeripheralsRoute(.readSuccess(display, type)))
     }
 
+    func showDangerousConfirmation(_ confirmation: BluetoothPeripheralDangerousConfirmation) {
+        path.append(BluetoothPeripheralsRoute(.dangerousConfirmation(confirmation)))
+    }
+
     func closeCurrentView() {
         guard !path.isEmpty else { return }
 
@@ -59,6 +63,7 @@ struct BluetoothPeripheralsRoute: Hashable {
         case textEntry(BluetoothPeripheralTextEntry)
         case selectionList(BluetoothPeripheralSelectionList)
         case readSuccess(TransmitterReadSuccessDisplay, BluetoothPeripheralType)
+        case dangerousConfirmation(BluetoothPeripheralDangerousConfirmation)
     }
 
     let id = UUID()

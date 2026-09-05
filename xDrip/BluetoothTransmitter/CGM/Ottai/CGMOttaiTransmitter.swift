@@ -278,12 +278,16 @@ final class CGMOttaiTransmitter: BluetoothTransmitter, CGMTransmitter {
     var sensorCommandStatus: Int { commandStatus }
 
     /// Same as `requestForceActivation()` in JugglucoNG: the user's Activate button is
-    /// always a "force" request. It also runs on a sensor that is already active or has
-    /// ended, so the user can try to start it again (for example to extend the lifetime).
-    /// The warning is shown by the settings screen before this is called.
+    /// always a "force" request. It also runs on a sensor that is already active, so the
+    /// user can try to extend its lifetime (the settings screen warns first). A sensor that
+    /// has ended is refused: the sensor rejected every such restart in the logs we have.
     func startSensor(sensorCode: String?, startDate: Date) {
         workQueue.async { [weak self] in
             guard let self = self else { return }
+            if self.commandStatus >= 4 {
+                trace("activation refused — the sensor has ended (cmd=%{public}d) and cannot be started again", log: self.log, category: ConstantsLog.categoryCGMOttai, type: .error, self.commandStatus)
+                return
+            }
             if self.effectiveActiveTimeMs() > 0 || self.activationCommandSentAtMs > 0 {
                 trace("FORCE activation (bypassing already-started guard)", log: self.log, category: ConstantsLog.categoryCGMOttai, type: .info)
             }
@@ -739,22 +743,11 @@ final class CGMOttaiTransmitter: BluetoothTransmitter, CGMTransmitter {
             if previous != 3 { startStreamingAfterCommandStatus() }
             return
         }
-        // 4 or more = the sensor has ended. Normally we do not try to restart it: we just read
-        // the live buffer once, to learn the last dataNo, and fetch the history up to it. But
-        // the same "invalid handle" quirk that sometimes rejects a maxActiveTime write during a
-        // normal activation can also flip an already-activated sensor back to "ended" (seen live:
-        // a sensor activated cleanly, then a repeated activation request failed the same write
-        // and the sensor reported ended 44 seconds later). While we are still inside the
-        // lifetime we told the sensor to run for, one recovery attempt is worth it before we
-        // give up on it as genuinely finished.
+        // 4 or more = the sensor has ended. We do not try to restart it: the sensor refused
+        // every restart in the logs we have (the lifetime write always fails). We only read
+        // the live buffer once, to learn the last dataNo, and fetch the history up to it. No
+        // glucose is shown from this read. The user needs a new sensor.
         livePollTimer?.cancel(); livePollTimer = nil
-        if OttaiConstants.shouldAttemptEndedSensorRecovery(commandStatus: status, activeTimeMs: warmupAnchorMs(), nowMs: nowMs()),
-           actStep == .none, !pendingActivation {
-            trace("sensor ended cmd=%{public}d but still within its lifetime — attempting recovery", log: log, category: ConstantsLog.categoryCGMOttai, type: .error, status)
-            activationRequested = false
-            afterDelay(0.25) { [weak self] in self?.requestActivationWithRediscovery() }
-            return
-        }
         trace("sensor ended cmd=%{public}d; no lifetime write will be attempted automatically", log: log, category: ConstantsLog.categoryCGMOttai, type: .error, status)
         afterDelay(0.5) { [weak self] in
             guard let self = self, self.commandStatus >= 4 else { return }

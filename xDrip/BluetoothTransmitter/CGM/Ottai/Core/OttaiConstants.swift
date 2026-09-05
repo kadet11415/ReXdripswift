@@ -229,9 +229,6 @@ enum OttaiConstants {
         return defaultActiveExpireMs
     }
 
-    static func shouldAttemptEndedSensorRecovery(commandStatus: Int, activeTimeMs: Int64, nowMs: Int64) -> Bool {
-        commandStatus == 4 && activeTimeMs > 0 && nowMs >= activeTimeMs && nowMs < activeTimeMs + extendedLifetimeMs
-    }
 
     /// The sensor's command byte is the truth. 0, 1 or 2 means "not activated yet".
     static func commandNeedsActivation(_ commandStatus: Int) -> Bool {

@@ -48,6 +48,7 @@ final class BluetoothPeripheralDetailState: NSObject, ObservableObject {
     private let presentTextEntryView: (BluetoothPeripheralTextEntry) -> Void
     private let presentSelectionListView: (BluetoothPeripheralSelectionList) -> Void
     private let presentReadSuccessView: (TransmitterReadSuccessDisplay, BluetoothPeripheralType) -> Void
+    private let presentDangerousConfirmation: (BluetoothPeripheralDangerousConfirmation) -> Void
 
     var onlineHelpTopic: OnlineHelpTopic {
         expectedBluetoothPeripheralType.onlineHelpTopic
@@ -92,7 +93,8 @@ final class BluetoothPeripheralDetailState: NSObject, ObservableObject {
         closeDetailView: @escaping () -> Void,
         presentTextEntryView: @escaping (BluetoothPeripheralTextEntry) -> Void,
         presentSelectionListView: @escaping (BluetoothPeripheralSelectionList) -> Void,
-        presentReadSuccessView: @escaping (TransmitterReadSuccessDisplay, BluetoothPeripheralType) -> Void
+        presentReadSuccessView: @escaping (TransmitterReadSuccessDisplay, BluetoothPeripheralType) -> Void,
+        presentDangerousConfirmation: @escaping (BluetoothPeripheralDangerousConfirmation) -> Void
     ) {
         self.bluetoothPeripheral = bluetoothPeripheral
         self.expectedBluetoothPeripheralType = expectedBluetoothPeripheralType
@@ -104,6 +106,7 @@ final class BluetoothPeripheralDetailState: NSObject, ObservableObject {
         self.presentTextEntryView = presentTextEntryView
         self.presentSelectionListView = presentSelectionListView
         self.presentReadSuccessView = presentReadSuccessView
+        self.presentDangerousConfirmation = presentDangerousConfirmation
         self.transmitterIdTempValue = bluetoothPeripheral?.blePeripheral.transmitterId
         self.dexcomG6BluetoothSlot = (bluetoothPeripheral as? DexcomG5)?
             .resolvedDexcomG6BluetoothSlot() ?? .defaultSlot
@@ -1690,6 +1693,36 @@ struct BluetoothPeripheralDetailAlert: Identifiable {
 }
 
 /// Text-entry route supplied by transmitter-specific configuration logic.
+/// A warning screen for an action that can break something that works now, like stopping
+/// or re-activating a running sensor. The Confirm button is disabled for a few seconds and
+/// counts down, so nobody can tap through the warning without reading it, as happens with
+/// a normal "Continue?" alert.
+struct BluetoothPeripheralDangerousConfirmation: Identifiable {
+    let id = UUID()
+    let title: String
+    let message: String
+    let confirmTitle: String
+    let cancelTitle: String
+    let countdownSeconds: Int
+    let action: () -> Void
+
+    init(
+        title: String,
+        message: String,
+        confirmTitle: String = "Confirm",
+        cancelTitle: String = Texts_Common.Cancel,
+        countdownSeconds: Int = 5,
+        action: @escaping () -> Void
+    ) {
+        self.title = title
+        self.message = message
+        self.confirmTitle = confirmTitle
+        self.cancelTitle = cancelTitle
+        self.countdownSeconds = countdownSeconds
+        self.action = action
+    }
+}
+
 struct BluetoothPeripheralTextEntry: Identifiable {
     let id = UUID()
     let title: String?
@@ -2840,26 +2873,42 @@ private extension BluetoothPeripheralDetailState {
         // Like Android's Advanced "Activate", this always sends the activation. Warn the user when
         // the sensor is already active or has ended.
         let status = ottaiTransmitter(for: ottai)?.sensorCommandStatus ?? -1
-        let message: String
+        let confirmAndActivate: () -> Void = { [weak self] in
+            guard let self = self else { return }
+            self.ottaiTransmitter(for: ottai)?.startSensor(sensorCode: nil, startDate: Date())
+            OttaiRegistry.setActivationAttempted(self.ottaiCloudId(for: ottai), true)
+            self.refresh()
+        }
 
+        // Forcing activation on a running sensor is what killed a tester's working sensor:
+        // the second activation write failed (as a first one sometimes does) and the sensor
+        // reported "ended" less than a minute later. A simple "Continue?" alert is too easy
+        // to tap through, so this one has a countdown before Confirm can be tapped.
         if status == 3 {
-            message = "The sensor is already active. This sends the activation again and may change its lifetime. This cannot be undone. Continue?"
-        } else if status >= 4 {
-            message = "The sensor reports that it has ended. This tries to start it again. This cannot be undone. Continue?"
-        } else {
-            message = "Activation is irreversible and starts the sensor's lifetime. Continue?"
+            presentDangerousConfirmation(BluetoothPeripheralDangerousConfirmation(
+                title: "Sensor is already running",
+                message: "This sensor is already active and gives readings. Activating it again can change its lifetime. In one case it ended a working sensor. Only do this if you know what you are doing.",
+                confirmTitle: "Force activation anyway",
+                countdownSeconds: 5,
+                action: confirmAndActivate
+            ))
+            return
+        }
+        // An ended sensor cannot be started again: the sensor refused every try in the logs
+        // we have. Showing the button would only invite more useless tries.
+        if status >= 4 {
+            showInfo(
+                title: "Sensor has ended",
+                message: "This sensor reports that it has ended. An ended sensor cannot be started again. Put on a new sensor and enter its Cloud ID."
+            )
+            return
         }
 
         pendingAlert = BluetoothPeripheralDetailAlert(
             title: "Activate sensor",
-            message: message,
+            message: "Activation cannot be undone and starts the sensor's lifetime. Continue?",
             primaryButtonTitle: "Activate",
-            primaryAction: { [weak self] in
-                guard let self = self else { return }
-                self.ottaiTransmitter(for: ottai)?.startSensor(sensorCode: nil, startDate: Date())
-                OttaiRegistry.setActivationAttempted(self.ottaiCloudId(for: ottai), true)
-                self.refresh()
-            },
+            primaryAction: confirmAndActivate,
             secondaryButtonTitle: Texts_Common.Cancel
         )
     }

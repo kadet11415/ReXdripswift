@@ -92,6 +92,9 @@ struct BluetoothPeripheralsNavigationView: View {
 
         case let .readSuccess(display, type):
             TransmitterReadSuccessView(display: display, bluetoothPeripheralType: type)
+
+        case let .dangerousConfirmation(confirmation):
+            BluetoothPeripheralDangerousConfirmationView(confirmation: confirmation, close: router.closeCurrentView)
         }
     }
 
@@ -150,7 +153,8 @@ private struct BluetoothPeripheralDetailContainerView: View {
             },
             presentTextEntryView: router.showTextEntry,
             presentSelectionListView: router.showSelectionList,
-            presentReadSuccessView: router.showReadSuccess
+            presentReadSuccessView: router.showReadSuccess,
+            presentDangerousConfirmation: router.showDangerousConfirmation
         ))
     }
 
