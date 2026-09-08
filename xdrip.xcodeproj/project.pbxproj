@@ -322,6 +322,7 @@
 		4F2500013002000100000001 /* SensorHealthIssueManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F2500113002000100000001 /* SensorHealthIssueManager.swift */; };
 		4F2500143002000100000001 /* SensorHealthModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F2500133002000100000001 /* SensorHealthModels.swift */; };
 		4F2600013002000200000001 /* SensorNoisePersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F2600113002000200000001 /* SensorNoisePersistenceTests.swift */; };
+		4F2600013002000200000099 /* OttaiStartupBackfillTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F2600113002000200000099 /* OttaiStartupBackfillTests.swift */; };
 		4F2600023002000200000001 /* SensorHealthIssueManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F2600123002000200000001 /* SensorHealthIssueManagerTests.swift */; };
 		4F2800013004000100000001 /* RootHomeInteractionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F2800113004000100000001 /* RootHomeInteractionTests.swift */; };
 		4F2800023004000100000001 /* GlucoseChartYAxisRetentionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F2800123004000100000001 /* GlucoseChartYAxisRetentionTests.swift */; };
@@ -1220,6 +1221,7 @@
 		4F2500113002000100000001 /* SensorHealthIssueManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SensorHealthIssueManager.swift; sourceTree = "<group>"; };
 		4F2500133002000100000001 /* SensorHealthModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SensorHealthModels.swift; sourceTree = "<group>"; };
 		4F2600113002000200000001 /* SensorNoisePersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SensorNoisePersistenceTests.swift; sourceTree = "<group>"; };
+		4F2600113002000200000099 /* OttaiStartupBackfillTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OttaiStartupBackfillTests.swift; sourceTree = "<group>"; };
 		4F2600123002000200000001 /* SensorHealthIssueManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SensorHealthIssueManagerTests.swift; sourceTree = "<group>"; };
 		4F2800113004000100000001 /* RootHomeInteractionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootHomeInteractionTests.swift; sourceTree = "<group>"; };
 		4F2800123004000100000001 /* GlucoseChartYAxisRetentionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlucoseChartYAxisRetentionTests.swift; sourceTree = "<group>"; };
@@ -2609,6 +2611,7 @@
 				4F2800113004000100000001 /* RootHomeInteractionTests.swift */,
 				4F2600123002000200000001 /* SensorHealthIssueManagerTests.swift */,
 				4F2600113002000200000001 /* SensorNoisePersistenceTests.swift */,
+				4F2600113002000200000099 /* OttaiStartupBackfillTests.swift */,
 				15CBE00BF86A714EC59FA546 /* CareLink */,
 			);
 			path = "xDrip Tests";
@@ -4371,6 +4374,7 @@
 				4F2800013004000100000001 /* RootHomeInteractionTests.swift in Sources */,
 				A40000010000000000000001 /* FollowerSettingsTests.swift in Sources */,
 				4F2600013002000200000001 /* SensorNoisePersistenceTests.swift in Sources */,
+				4F2600013002000200000099 /* OttaiStartupBackfillTests.swift in Sources */,
 				377EBC0A484BFC8EA77C623C /* CareLinkTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

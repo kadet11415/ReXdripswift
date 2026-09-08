@@ -28,8 +28,10 @@
 //  Different on purpose (xDrip has no Room database):
 //    - the first readings after connect are collected and given to xDrip ONCE,
 //      newest first, so its 5-minute filter can fill the chart from empty
-//    - the first backfill is a fixed 24 h window (not a database diff), and
-//      there is no list of missing windows saved between sessions
+//    - after a start, the first backfill asks only for the records after the last
+//      one xDrip already has (a saved "delivered" mark; the Kotlin uses
+//      previousDataNo the same way). Only a sensor we know nothing about gets the
+//      last 24 h. Missing windows are not saved between sessions
 //    - NFC wake, connection priority and the outage probe do not exist on iOS
 //
 //  Threads: everything in this class runs on `workQueue` (one at a time).
@@ -144,6 +146,13 @@ final class CGMOttaiTransmitter: BluetoothTransmitter, CGMTransmitter {
     // MARK: - state that stays across reconnects
 
     private var lastDataNo = 0
+    /// The last dataNo that xDrip has stored, with no older records still on the way.
+    /// Saved, so the next start asks the sensor only for what came after it. It stays
+    /// behind `lastDataNo` while a gap fill is planned or history blocks are still coming.
+    private var deliveredDataNo = 0
+    /// True from the moment a gap fill after a live reading is planned until it has been
+    /// sent (or found unnecessary). See `noteDelivered(upTo:)`.
+    private var historyGapPending = false
     // The record size (8 or 9 bytes) learned from this sensor. 0 until a big enough
     // packet has shown it. A small live packet (one record) cannot tell the two sizes
     // apart, so it must not choose. See OttaiParser.decisiveRecordSize.
@@ -218,6 +227,7 @@ final class CGMOttaiTransmitter: BluetoothTransmitter, CGMTransmitter {
 
         // load the saved state (restoreFromPersistence in the Kotlin)
         self.lastDataNo = OttaiRegistry.loadLastDataNo(canonical)
+        self.deliveredDataNo = OttaiRegistry.loadDeliveredDataNo(canonical)
         self.learnedRecordSize = OttaiRegistry.loadRecordSize(canonical)
         self.activatedMaxActiveMs = OttaiRegistry.loadAcceptedMaxActive(canonical)
         if materials.activeTimeMs > 0 {
@@ -328,6 +338,7 @@ final class CGMOttaiTransmitter: BluetoothTransmitter, CGMTransmitter {
         expectedRediscoveryCount = 0
         liveReadInFlight = false
         lastVerifyFailed = false
+        historyGapPending = false
         livePollTimer?.cancel()
         livePollTimer = nil
         clearPendingHistoryRange()
@@ -784,9 +795,10 @@ final class CGMOttaiTransmitter: BluetoothTransmitter, CGMTransmitter {
             readLiveGlucose("initial-history-probe")
             return
         }
-        initialHistoryRequested = true
-        let start = max(0, lastDataNo - Self.initialBackfillRecords)
-        _ = requestHistoryRange("initial", start: start, count: lastDataNo - start)
+        // Without a live reading we only know the last record we saw. Ask for the part
+        // of it xDrip never got; the live path asks for anything newer later.
+        guard let range = Self.startupBackfillRange(liveDataNo: lastDataNo + 1, lastDataNo: lastDataNo, deliveredDataNo: deliveredDataNo) else { return }
+        if requestHistoryRange("initial", start: range.start, count: range.count) { initialHistoryRequested = true }
     }
 
     // MARK: - live and history packets
@@ -858,10 +870,15 @@ final class CGMOttaiTransmitter: BluetoothTransmitter, CGMTransmitter {
             let liveDataNo = lastDataNo
             let previousForHistory = previousDataNoForHistory(previousDataNo, liveDataNo)
             if !initialFlushDone && !initialHistoryRequested && liveDataNo > 0 {
-                initialHistoryRequested = true
-                let start = max(0, liveDataNo - Self.initialBackfillRecords)
-                _ = requestHistoryRange("room-backfill", start: start, count: liveDataNo - start)
+                // First live reading after a start: ask only for what xDrip is missing.
+                if let range = Self.startupBackfillRange(liveDataNo: liveDataNo, lastDataNo: previousForHistory, deliveredDataNo: deliveredDataNo) {
+                    if requestHistoryRange("room-backfill", start: range.start, count: range.count) { initialHistoryRequested = true }
+                } else {
+                    initialHistoryRequested = true
+                    trace("skip history reason=room-backfill previous=%{public}d delivered=%{public}d live=%{public}d", log: log, category: ConstantsLog.categoryCGMOttai, type: .info, previousForHistory, deliveredDataNo, liveDataNo)
+                }
             } else if previousForHistory < 0 || liveDataNo - previousForHistory - 1 > 0 {
+                historyGapPending = true
                 afterDelay(1.5) { [weak self] in self?.requestHistoryAfterLive(previousForHistory, liveDataNo) }
             }
         } else {
@@ -889,6 +906,7 @@ final class CGMOttaiTransmitter: BluetoothTransmitter, CGMTransmitter {
             trace("ended live buffer has no records", log: log, category: ConstantsLog.categoryCGMOttai, type: .info)
             return
         }
+        let previousDataNo = lastDataNo
         noteSeenDataNo(latest.dataNo)
         // Only a confirmed activation time may date this backfill. A guessed time
         // would give wrong dates.
@@ -898,11 +916,14 @@ final class CGMOttaiTransmitter: BluetoothTransmitter, CGMTransmitter {
         trace("ended live buffer indexed dataNo=%{public}d; glucose suppressed", log: log, category: ConstantsLog.categoryCGMOttai, type: .info, latest.dataNo)
         afterDelay(4.5) { [weak self] in
             guard let self = self, self.commandStatus >= 4, self.phase == .streaming, !self.sessionKeyHex.isEmpty else { return }
-            let end = self.lastDataNo + 1
-            guard end > 0, !self.initialHistoryRequested else { return }
-            self.initialHistoryRequested = true
-            let start = max(0, end - Self.initialBackfillRecords)
-            _ = self.requestHistoryRange("ended-backfill", start: start, count: end - start)
+            guard !self.initialHistoryRequested else { return }
+            // Include the last record itself: an ended sensor sends no live reading that would bring it.
+            guard let range = Self.startupBackfillRange(liveDataNo: self.lastDataNo + 1, lastDataNo: previousDataNo, deliveredDataNo: self.deliveredDataNo) else {
+                self.initialHistoryRequested = true
+                trace("skip history reason=ended-backfill previous=%{public}d delivered=%{public}d last=%{public}d", log: self.log, category: ConstantsLog.categoryCGMOttai, type: .info, previousDataNo, self.deliveredDataNo, self.lastDataNo)
+                return
+            }
+            if self.requestHistoryRange("ended-backfill", start: range.start, count: range.count) { self.initialHistoryRequested = true }
         }
     }
 
@@ -969,7 +990,7 @@ final class CGMOttaiTransmitter: BluetoothTransmitter, CGMTransmitter {
         }
         rememberAcceptedReading(r, mmol: mmol, sampleMs: sampleMs)
         if advancesDataNo { noteSeenDataNo(r.record.dataNo) }
-        trace("BG dataNo=%{public}d mmol=%{public}.2f mgdl=%{public}.0f raw=%{public}d T=%{public}.1f", log: log, category: ConstantsLog.categoryCGMOttai, type: .info, r.record.dataNo, Double(mmol), mgdl, r.record.rawCurrent, r.record.temperatureC)
+        trace("BG dataNo=%{public}d mmol=%{public}@ mgdl=%{public}@ raw=%{public}d T=%{public}@", log: log, category: ConstantsLog.categoryCGMOttai, type: .info, r.record.dataNo, String(format: "%.2f", Double(mmol)), String(format: "%.0f", mgdl), r.record.rawCurrent, String(format: "%.1f", r.record.temperatureC))
         // Like the Kotlin: history is always kept. A live reading is kept only when
         // it is fresh and newer than the last one. An old record that comes from the
         // live characteristic is never shown as the current value.
@@ -985,7 +1006,7 @@ final class CGMOttaiTransmitter: BluetoothTransmitter, CGMTransmitter {
 
     private func rejectReading(_ r: OttaiReading, mmol: Float, live: Bool, reason: String) -> (dataNo: Int, glucose: GlucoseData)? {
         rememberRejectedReading(r, mmol: mmol)
-        trace("%{public}@ BG rejected reason=%{public}@ dataNo=%{public}d mmol=%{public}.2f raw=%{public}d T=%{public}.1f", log: log, category: ConstantsLog.categoryCGMOttai, type: .error, live ? "live" : "history", reason, r.record.dataNo, Double(mmol), r.record.rawCurrent, r.record.temperatureC)
+        trace("%{public}@ BG rejected reason=%{public}@ dataNo=%{public}d mmol=%{public}@ raw=%{public}d T=%{public}@", log: log, category: ConstantsLog.categoryCGMOttai, type: .error, live ? "live" : "history", reason, r.record.dataNo, String(format: "%.2f", Double(mmol)), r.record.rawCurrent, String(format: "%.1f", r.record.temperatureC))
         return nil
     }
 
@@ -1039,6 +1060,10 @@ final class CGMOttaiTransmitter: BluetoothTransmitter, CGMTransmitter {
         trace("reset ahead lastDataNo previous=%{public}d acceptedLive=%{public}d", log: log, category: ConstantsLog.categoryCGMOttai, type: .error, lastDataNo, acceptedDataNo)
         lastDataNo = acceptedDataNo - 1
         OttaiRegistry.saveLastDataNo(sensorId, lastDataNo)
+        if deliveredDataNo > lastDataNo {
+            deliveredDataNo = 0
+            OttaiRegistry.saveDeliveredDataNo(sensorId, 0)
+        }
     }
 
     /// The highest dataNo we accept. Only a real activation time (from the cloud
@@ -1300,7 +1325,7 @@ final class CGMOttaiTransmitter: BluetoothTransmitter, CGMTransmitter {
             let gen = flushGeneration
             workQueue.asyncAfter(deadline: .now() + 5.0) { [weak self] in self?.flushInitialBufferIfIdle(gen) }
         } else {
-            deliver(emitted.map { $0.glucose }.sorted { $0.timeStamp > $1.timeStamp })
+            deliver(emitted.map { $0.glucose }.sorted { $0.timeStamp > $1.timeStamp }, upTo: emitted.map { $0.dataNo }.max() ?? 0)
         }
     }
 
@@ -1308,20 +1333,35 @@ final class CGMOttaiTransmitter: BluetoothTransmitter, CGMTransmitter {
         guard !initialFlushDone, flushGeneration == generation else { return }
         initialFlushDone = true
         let arr = Array(initialBuffer.values).sorted { $0.timeStamp > $1.timeStamp }
+        let newestDataNo = initialBuffer.keys.max() ?? 0
         initialBuffer.removeAll()
         guard !arr.isEmpty else { return }
         trace("flushing initial backfill count=%{public}d", log: log, category: ConstantsLog.categoryCGMOttai, type: .info, arr.count)
-        deliver(arr)
+        deliver(arr, upTo: newestDataNo)
     }
 
-    private func deliver(_ readings: [GlucoseData]) {
+    /// Gives the readings to xDrip on the main queue. `newestDataNo` is the highest
+    /// dataNo in the batch. Once xDrip has stored the batch, it can become the saved
+    /// "delivered" mark (see `noteDelivered(upTo:)`).
+    private func deliver(_ readings: [GlucoseData], upTo newestDataNo: Int) {
         guard !readings.isEmpty else { return }
         let sensorAge = sensorAgeTimeInterval()
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             var arr = readings
             self.cgmTransmitterDelegate?.cgmTransmitterInfoReceived(glucoseData: &arr, transmitterBatteryInfo: nil, sensorAge: sensorAge)
+            self.workQueue.async { [weak self] in self?.noteDelivered(upTo: newestDataNo) }
         }
+    }
+
+    /// Moves the saved "delivered" mark forward. Not while older records are still on
+    /// the way (a gap fill is planned or history blocks are still coming): the next
+    /// start would then not see the hole.
+    private func noteDelivered(upTo dataNo: Int) {
+        guard dataNo > deliveredDataNo else { return }
+        guard !historyGapPending, activeHistoryEndExclusive <= 0, pendingHistoryReason == nil else { return }
+        deliveredDataNo = dataNo
+        OttaiRegistry.saveDeliveredDataNo(sensorId, dataNo)
     }
 
     // MARK: - cgm-info packets
@@ -1377,6 +1417,24 @@ final class CGMOttaiTransmitter: BluetoothTransmitter, CGMTransmitter {
 
     // MARK: - history requests, block chain and watchdog
 
+    /// What to ask the sensor for right after a start. `liveDataNo` is the record that
+    /// just came in (the range ends before it). `lastDataNo` is the last record we saw
+    /// before it (0 or less = nothing known). `deliveredDataNo` is the saved mark of what
+    /// xDrip already has. Nil when nothing is missing. The Kotlin uses previousDataNo the
+    /// same way; the delivered mark also covers readings that were still in the start
+    /// buffer when the app died. A sensor we know nothing about gets the last 24 h. That
+    /// is also the most one start ever asks for.
+    static func startupBackfillRange(liveDataNo: Int, lastDataNo: Int, deliveredDataNo: Int) -> (start: Int, count: Int)? {
+        guard liveDataNo > 0 else { return nil }
+        let oldest = max(0, liveDataNo - initialBackfillRecords)
+        guard lastDataNo > 0 else { return (oldest, liveDataNo - oldest) }
+        var basis = lastDataNo
+        if deliveredDataNo > 0 && deliveredDataNo < basis { basis = deliveredDataNo }
+        let start = max(basis + 1, oldest)
+        let count = liveDataNo - start
+        return count > 0 ? (start, count) : nil
+    }
+
     @discardableResult
     private func requestRecentHistory(_ reason: String) -> Bool {
         let endExclusive = lastDataNo
@@ -1386,6 +1444,7 @@ final class CGMOttaiTransmitter: BluetoothTransmitter, CGMTransmitter {
     }
 
     private func requestHistoryAfterLive(_ previousDataNo: Int, _ liveDataNo: Int) {
+        historyGapPending = false
         guard liveDataNo > 0 else { return }
         let missingBeforeLive = liveDataNo - previousDataNo - 1
         if previousDataNo >= 0 && missingBeforeLive <= 0 { return }

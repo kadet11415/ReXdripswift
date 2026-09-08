@@ -54,6 +54,8 @@ enum OttaiRegistry {
         static let retainTimePrefix = "ottai_retain_time_"
         static let deviceVersionPrefix = "ottai_device_version_"
         static let lastDataNoPrefix = "ottai_last_datano_"
+        // xDrip only: the highest dataNo xDrip took over (see CGMOttaiTransmitter.noteDelivered)
+        static let deliveredDataNoPrefix = "ottai_delivered_datano_"
         // The record size (8 or 9 bytes) learned from this sensor, 0 until a big enough
         // packet has shown it. Saved, so the size is right from the first packet of the
         // next session too. See OttaiParser.decisiveRecordSize.
@@ -290,6 +292,14 @@ enum OttaiRegistry {
         d.set(dataNo, forKey: K.lastDataNoPrefix + canonical(id))
     }
 
+    static func loadDeliveredDataNo(_ id: String) -> Int {
+        d.integer(forKey: K.deliveredDataNoPrefix + canonical(id))
+    }
+
+    static func saveDeliveredDataNo(_ id: String, _ dataNo: Int) {
+        d.set(dataNo, forKey: K.deliveredDataNoPrefix + canonical(id))
+    }
+
     static func loadRecordSize(_ id: String) -> Int {
         d.integer(forKey: K.recordSizePrefix + canonical(id))
     }
@@ -346,7 +356,7 @@ enum OttaiRegistry {
         writeRecords(K.sensorsSet, persistedRecords().filter { !$0.matchesId(id) })
         for prefix in [K.keyAPrefix, K.methodPrefix, K.coeffPrefix, K.activeTimePrefix,
                        K.provisionalActiveTimePrefix, K.activeExpirePrefix, K.retainTimePrefix,
-                       K.preheatPeriodPrefix, K.deviceVersionPrefix, K.lastDataNoPrefix, K.recordSizePrefix,
+                       K.preheatPeriodPrefix, K.deviceVersionPrefix, K.lastDataNoPrefix, K.deliveredDataNoPrefix, K.recordSizePrefix,
                        K.deviceIdPrefix, K.activationAttemptedPrefix, K.v3BootstrapPendingPrefix] {
             d.removeObject(forKey: prefix + id)
         }
