@@ -1203,7 +1203,7 @@ class BgPostProcessingManager {
             return currentMasterLibreUsesNativeAlgorithm() ? nil : .masterLibreUsesCalibration
         case .dexcom:
             return currentMasterSourceIsDexcomG6() ? .masterDexcomG6UsesCalibration : nil
-        case .dexcomG7, .medtrumTouchCareNano, .ottai:
+        case .dexcomG7, .medtrumTouchCareNano, .ottai, .Aidex:
             return nil
         }
     }
@@ -1244,6 +1244,8 @@ class BgPostProcessingManager {
             return connectedCGMPeripherals.first { $0.medtrumTouchCareNano != nil }
         case .ottai:
             return connectedCGMPeripherals.first { $0.ottai != nil }
+        case .Aidex:
+            return connectedCGMPeripherals.first { $0.aidex != nil }
         case nil:
             return nil
         }

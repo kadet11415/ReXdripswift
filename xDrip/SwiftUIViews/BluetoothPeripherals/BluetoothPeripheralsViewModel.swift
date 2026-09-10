@@ -496,6 +496,7 @@ extension BluetoothPeripheralType {
             .BubbleType,
             .MedtrumTouchCareNanoType,
             .OttaiType
+            .AidexType
         ]
     ]
 }
