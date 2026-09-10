@@ -289,12 +289,21 @@ struct BluetoothPeripheralTextEntryView: View {
             }
 
             Section {
-                TextField(textEntry.placeholder ?? "", text: $text)
-                    .keyboardType(textEntry.keyboardType)
-                    .textInputAutocapitalization(textEntry.textInputAutocapitalization)
-                    .autocorrectionDisabled()
-                    .submitLabel(.done)
-                    .onSubmit(submit)
+                if textEntry.isSecureTextEntry {
+                    SecureField(textEntry.placeholder ?? "", text: $text)
+                        .keyboardType(textEntry.keyboardType)
+                        .textInputAutocapitalization(textEntry.textInputAutocapitalization)
+                        .autocorrectionDisabled()
+                        .submitLabel(.done)
+                        .onSubmit(submit)
+                } else {
+                    TextField(textEntry.placeholder ?? "", text: $text)
+                        .keyboardType(textEntry.keyboardType)
+                        .textInputAutocapitalization(textEntry.textInputAutocapitalization)
+                        .autocorrectionDisabled()
+                        .submitLabel(.done)
+                        .onSubmit(submit)
+                }
             }
 
             if let validationMessage {
@@ -336,8 +345,77 @@ struct BluetoothPeripheralTextEntryView: View {
             return
         }
 
-        textEntry.actionHandler(text)
+        // Close this entry BEFORE running the handler. The entry is a navigation push and
+        // close() pops the last pushed view — a handler that presents the next step (email →
+        // password, phone → SMS code) pushes it, and closing afterwards would pop that new
+        // step instead of this one, so the second field never appeared.
         close()
+        textEntry.actionHandler(text)
+    }
+}
+
+/// A full-screen warning for an action that can break something that works now (see
+/// `BluetoothPeripheralDangerousConfirmation`). Confirm is disabled and counts down, so it
+/// cannot be tapped through like the second button of a system alert.
+struct BluetoothPeripheralDangerousConfirmationView: View {
+    let confirmation: BluetoothPeripheralDangerousConfirmation
+    let close: () -> Void
+
+    @State private var secondsRemaining: Int
+
+    init(confirmation: BluetoothPeripheralDangerousConfirmation, close: @escaping () -> Void) {
+        self.confirmation = confirmation
+        self.close = close
+        _secondsRemaining = State(initialValue: max(confirmation.countdownSeconds, 0))
+    }
+
+    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        VStack(spacing: 24) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 56))
+                .foregroundStyle(ConstantsAppColors.urgent)
+                .padding(.top, 32)
+
+            Text(confirmation.title)
+                .font(.title2.bold())
+                .multilineTextAlignment(.center)
+
+            Text(confirmation.message)
+                .font(.body)
+                .foregroundStyle(Color(.colorSecondary))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+
+            Spacer()
+
+            Button(action: confirm) {
+                Text(secondsRemaining > 0 ? "\(confirmation.confirmTitle) (\(secondsRemaining))" : confirmation.confirmTitle)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(ConstantsAppColors.urgent)
+            .disabled(secondsRemaining > 0)
+            .padding(.horizontal, 24)
+
+            Button(confirmation.cancelTitle, action: close)
+                .padding(.bottom, 24)
+        }
+        .navigationBarBackButtonHidden(true)
+        .background(ConstantsUI.listBackGroundColor)
+        .colorScheme(.dark)
+        .onReceive(timer) { _ in
+            if secondsRemaining > 0 { secondsRemaining -= 1 }
+        }
+    }
+
+    private func confirm() {
+        guard secondsRemaining <= 0 else { return }
+        // Close first, then run the action (same as the text-entry screen): the action can
+        // open a new screen, and closing after it would close that new screen instead of this one.
+        close()
+        confirmation.action()
     }
 }
 

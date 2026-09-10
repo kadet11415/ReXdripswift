@@ -171,18 +171,18 @@ class BluetoothPeripheralManager: NSObject {
                         _ = m5StackBluetoothTransmitter.writeBgReadingInfo(bgReading: bgReadingToSend[0])
                     }
                     
-                case .DexcomType, .BubbleType, .MiaoMiaoType, .Libre2Type, .DexcomG7Type, .MedtrumTouchCareNanoType, .AidexType:
+                case .DexcomType, .BubbleType, .MiaoMiaoType, .Libre2Type, .DexcomG7Type, .OttaiType, .MedtrumTouchCareNanoType, .AidexType:
                     // cgm's don't receive reading, they send it
                     break
-                    
+
                 case .Libre3HeartBeatType, .DexcomG7HeartBeatType, .OmniPodHeartBeatType:
                     // heartbeat transmitters are just there to wake up the app
                     break
-                    
+
                 }
 
             }
-   
+
         }
     }
 
@@ -345,9 +345,25 @@ class BluetoothPeripheralManager: NSObject {
                         }
                         
                     }
-                    
+
+                case .OttaiType:
+
+                    if let ottai = bluetoothPeripheral as? Ottai {
+
+                        if let cgmTransmitterDelegate = cgmTransmitterDelegate {
+
+                            newTransmitter = CGMOttaiTransmitter(address: ottai.blePeripheral.address, name: ottai.blePeripheral.name, sensorId: ottai.ottaiSensorId ?? "", bluetoothTransmitterDelegate: self, cGMTransmitterDelegate: cgmTransmitterDelegate)
+
+                        } else {
+
+                            trace("in getBluetoothTransmitter, case OttaiType but cgmTransmitterDelegate is nil, looks like a coding error ", log: log, category: ConstantsLog.categoryBluetoothPeripheralManager, type: .error)
+
+                        }
+
+                    }
+
                 case .Libre3HeartBeatType:
-                    
+
                     if let libre2heartbeat = bluetoothPeripheral as? Libre2HeartBeat {
                         
                         if let transmitterId = libre2heartbeat.blePeripheral.transmitterId {
@@ -472,7 +488,12 @@ class BluetoothPeripheralManager: NSObject {
                 if bluetoothTransmitter is CGMLibre2Transmitter {
                     return .Libre2Type
                 }
-                
+
+            case .OttaiType:
+                if bluetoothTransmitter is CGMOttaiTransmitter {
+                    return .OttaiType
+                }
+
             case .Libre3HeartBeatType:
                 if bluetoothTransmitter is Libre3HeartBeatBluetoothTransmitter {
                     return .Libre3HeartBeatType
@@ -555,7 +576,19 @@ class BluetoothPeripheralManager: NSObject {
             }
             
             return CGMLibre2Transmitter(address: nil, name: nil, bluetoothTransmitterDelegate: bluetoothTransmitterDelegate ?? self, cGMLibre2TransmitterDelegate: self, sensorSerialNumber: nil, cGMTransmitterDelegate: cgmTransmitterDelegate, nonFixedSlopeEnabled: nil, webOOPEnabled: nil)
-            
+
+        case .OttaiType:
+
+            guard let cgmTransmitterDelegate = cgmTransmitterDelegate else {
+                fatalError("in createNewTransmitter, OttaiType, cgmTransmitterDelegate is nil")
+            }
+
+            // A normal scan does not know the Ottai cloud id. The setup screen saves it
+            // (login or JSON import), and we take the last saved sensor here.
+            let stagedSensorId = OttaiRegistry.persistedRecords().last?.sensorId ?? ""
+
+            return CGMOttaiTransmitter(address: nil, name: nil, sensorId: stagedSensorId, bluetoothTransmitterDelegate: bluetoothTransmitterDelegate ?? self, cGMTransmitterDelegate: cgmTransmitterDelegate)
+
         case .Libre3HeartBeatType:
             
             guard let transmitterId = transmitterId else {
@@ -682,16 +715,8 @@ class BluetoothPeripheralManager: NSObject {
     /// when user changes M5Stack related settings, then the transmitter need to get that info, add observers
     private func addObservers() {
         
-        UserDefaults.standard.addObserver(self, forKeyPath: UserDefaults.Key.m5StackWiFiName1.rawValue, options: .new, context: nil)
-        UserDefaults.standard.addObserver(self, forKeyPath: UserDefaults.Key.m5StackWiFiName2.rawValue, options: .new, context: nil)
-        UserDefaults.standard.addObserver(self, forKeyPath: UserDefaults.Key.m5StackWiFiName3.rawValue, options: .new, context: nil)
-        UserDefaults.standard.addObserver(self, forKeyPath: UserDefaults.Key.m5StackWiFiPassword1.rawValue, options: .new, context: nil)
-        UserDefaults.standard.addObserver(self, forKeyPath: UserDefaults.Key.m5StackWiFiPassword2.rawValue, options: .new, context: nil)
-        UserDefaults.standard.addObserver(self, forKeyPath: UserDefaults.Key.m5StackWiFiPassword3.rawValue, options: .new, context: nil)
         UserDefaults.standard.addObserver(self, forKeyPath: UserDefaults.Key.m5StackBlePassword.rawValue, options: .new, context: nil)
         UserDefaults.standard.addObserver(self, forKeyPath: UserDefaults.Key.bloodGlucoseUnitIsMgDl.rawValue, options: .new, context: nil)
-        UserDefaults.standard.addObserver(self, forKeyPath: UserDefaults.Key.nightscoutUrl.rawValue, options: .new, context: nil)
-        UserDefaults.standard.addObserver(self, forKeyPath: UserDefaults.Key.nightscoutAPIKey.rawValue, options: .new, context: nil)
         UserDefaults.standard.addObserver(self, forKeyPath: UserDefaults.Key.isMaster.rawValue, options: .new, context: nil)
 
     }
@@ -934,12 +959,37 @@ class BluetoothPeripheralManager: NSObject {
                         
                         
                     }
-                    
+
+                case .OttaiType:
+
+                    if let ottai = blePeripheral.ottai {
+
+                        blePeripheralFound = true
+
+                        // add it to the list of bluetoothPeripherals
+                        let index = insertInBluetoothPeripherals(bluetoothPeripheral: ottai)
+
+                        if ottai.blePeripheral.shouldconnect {
+
+                            bluetoothTransmitters.insert(CGMOttaiTransmitter(address: ottai.blePeripheral.address, name: ottai.blePeripheral.name, sensorId: ottai.ottaiSensorId ?? "", bluetoothTransmitterDelegate: self, cGMTransmitterDelegate: cgmTransmitterDelegate), at: index)
+
+                            if bluetoothPeripheralType.category() == .CGM {
+                                currentCgmTransmitterAddress = blePeripheral.address
+                            }
+
+                        } else {
+
+                            bluetoothTransmitters.insert(nil, at: index)
+
+                        }
+
+                    }
+
                 case .Libre3HeartBeatType:
                     if let libre2heartbeat = blePeripheral.libre2heartbeat {
-                        
+
                         blePeripheralFound = true
-                        
+
                         // add it to the list of bluetoothPeripherals
                         let index = insertInBluetoothPeripherals(bluetoothPeripheral: libre2heartbeat)
                         
@@ -1119,7 +1169,7 @@ class BluetoothPeripheralManager: NSObject {
         // first check keyValueObserverTimeKeeper
         switch keyPathEnum {
             
-        case UserDefaults.Key.m5StackWiFiName1, UserDefaults.Key.m5StackWiFiName2, UserDefaults.Key.m5StackWiFiName3, UserDefaults.Key.m5StackWiFiPassword1, UserDefaults.Key.m5StackWiFiPassword2, UserDefaults.Key.m5StackWiFiPassword3, UserDefaults.Key.nightscoutAPIKey, UserDefaults.Key.nightscoutUrl, UserDefaults.Key.bloodGlucoseUnitIsMgDl, UserDefaults.Key.m5StackBlePassword :
+        case UserDefaults.Key.bloodGlucoseUnitIsMgDl, UserDefaults.Key.m5StackBlePassword:
             
             // transmittertype change triggered by user, should not be done within 200 ms
             if !keyValueObserverTimeKeeper.verifyKey(forKey: keyPathEnum.rawValue, withMinimumDelayMilliSeconds: 200) {
@@ -1191,24 +1241,6 @@ class BluetoothPeripheralManager: NSObject {
                 
                 switch keyPathEnum {
                     
-                case UserDefaults.Key.m5StackWiFiName1:
-                    success = m5StackBluetoothTransmitter.writeWifiName(name: UserDefaults.standard.m5StackWiFiName1, number: 1)
-                    
-                case UserDefaults.Key.m5StackWiFiName2:
-                    success = m5StackBluetoothTransmitter.writeWifiName(name: UserDefaults.standard.m5StackWiFiName2, number: 2)
-                    
-                case UserDefaults.Key.m5StackWiFiName3:
-                    success = m5StackBluetoothTransmitter.writeWifiName(name: UserDefaults.standard.m5StackWiFiName3, number: 3)
-                    
-                case UserDefaults.Key.m5StackWiFiPassword1:
-                    success = m5StackBluetoothTransmitter.writeWifiPassword(password: UserDefaults.standard.m5StackWiFiPassword1, number: 1)
-                    
-                case UserDefaults.Key.m5StackWiFiPassword2:
-                    success = m5StackBluetoothTransmitter.writeWifiPassword(password: UserDefaults.standard.m5StackWiFiPassword2, number: 2)
-                    
-                case UserDefaults.Key.m5StackWiFiPassword3:
-                    success = m5StackBluetoothTransmitter.writeWifiPassword(password: UserDefaults.standard.m5StackWiFiPassword3, number: 3)
-                    
                 case UserDefaults.Key.m5StackBlePassword:
                     // only if the password in the settings is not nil, and if the m5Stack doesn't have a password yet, then we will store it in the M5Stack.
                     if let blePassword = UserDefaults.standard.m5StackBlePassword, m5Stack.blepassword == nil {
@@ -1217,12 +1249,6 @@ class BluetoothPeripheralManager: NSObject {
                     
                 case UserDefaults.Key.bloodGlucoseUnitIsMgDl:
                     success = m5StackBluetoothTransmitter.writeBloodGlucoseUnit(isMgDl: UserDefaults.standard.bloodGlucoseUnitIsMgDl)
-                    
-                case UserDefaults.Key.nightscoutAPIKey:
-                    success = m5StackBluetoothTransmitter.writeNightscoutAPIKey(apiKey: UserDefaults.standard.nightscoutAPIKey)
-                    
-                case UserDefaults.Key.nightscoutUrl:
-                    success = m5StackBluetoothTransmitter.writeNightscoutUrl(url: UserDefaults.standard.nightscoutUrl)
                     
                 default:
                     break
@@ -1233,7 +1259,7 @@ class BluetoothPeripheralManager: NSObject {
                     bluetoothPeripheral.blePeripheral.parameterUpdateNeededAtNextConnect = true
                 }
              
-            case .DexcomType, .BubbleType, .MiaoMiaoType, .Libre2Type, .Libre3HeartBeatType, .DexcomG7HeartBeatType, .OmniPodHeartBeatType, .DexcomG7Type, .MedtrumTouchCareNanoType, .AidexType:
+            case .DexcomType, .BubbleType, .MiaoMiaoType, .Libre2Type, .Libre3HeartBeatType, .DexcomG7HeartBeatType, .OmniPodHeartBeatType, .DexcomG7Type, .OttaiType, .MedtrumTouchCareNanoType, .AidexType:
 
                 // nothing to check
                 break

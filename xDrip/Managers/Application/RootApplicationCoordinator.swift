@@ -1794,6 +1794,10 @@ import AppIntents
                 calibrator = Libre1Calibrator()
             }
 
+        case .ottai:
+            // Ottai / Syai send glucose that is already calibrated
+            calibrator = NoCalibrator()
+
         case .medtrumTouchCareNano:
             // Values arrive already calibrated to mg/dL. The transmitter applies the Medtrum per-sensor
             // calibration factor decoded from each packet, so xDrip should not run its own calibrator.
@@ -2564,6 +2568,28 @@ import AppIntents
 
 /// conform to CGMTransmitterDelegate
 extension RootApplicationCoordinator: @preconcurrency CGMTransmitterDelegate {
+    func sensorSessionConfirmed(startDate: Date) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.sensorSessionConfirmed(startDate: startDate)
+            }
+            return
+        }
+
+        guard bluetoothPeripheralManager?.getCGMTransmitter()?.needsSensorStartCode() == true,
+              let activeSensor,
+              let coreDataManager,
+              abs(activeSensor.startDate.timeIntervalSince(startDate)) <= CGMG5Transmitter.sensorStartDateTolerance,
+              activeSensor.confirmSessionStartedByApp() else {
+            return
+        }
+
+        trace("validated Dexcom glucose data confirms sensor session started by xDrip with requested code %{public}@", log: log, category: ConstantsLog.categoryRootView, type: .info, activeSensor.requestedSensorCode ?? "none")
+
+        coreDataManager.saveChanges()
+        updateLabelsAndChart(overrideApplicationState: false)
+    }
+
     func sensorSessionStartResultReceived(_ result: CGMSensorSessionStartResult) {
         guard Thread.isMainThread else {
             DispatchQueue.main.async { [weak self] in
@@ -2684,7 +2710,15 @@ extension RootApplicationCoordinator: @preconcurrency CGMTransmitterDelegate {
         
         if let sensorAgeInSeconds = sensorAge {
             let cgmTransmitterType = bluetoothPeripheralManager?.getCGMTransmitter()?.cgmTransmitterType()
-            let minimumWarmUpRequiredInMinutes = cgmTransmitterType == .dexcomG7 ? ConstantsMaster.minimumSensorWarmUpRequiredInMinutesDexcomG7 : ConstantsMaster.minimumSensorWarmUpRequiredInMinutes
+            let minimumWarmUpRequiredInMinutes: Double
+            switch cgmTransmitterType {
+            case .dexcomG7:
+                minimumWarmUpRequiredInMinutes = ConstantsMaster.minimumSensorWarmUpRequiredInMinutesDexcomG7
+            case .ottai:
+                minimumWarmUpRequiredInMinutes = ConstantsMaster.minimumSensorWarmUpRequiredInMinutesOttai
+            default:
+                minimumWarmUpRequiredInMinutes = ConstantsMaster.minimumSensorWarmUpRequiredInMinutes
+            }
             let secondsUntilWarmUpComplete = (minimumWarmUpRequiredInMinutes * 60) - sensorAgeInSeconds
             let isDexcomG7WithReceivedGlucose = cgmTransmitterType == .dexcomG7 && glucoseData.contains { $0.glucoseLevelRaw > 0 }
             

@@ -496,7 +496,10 @@ struct SensorManagementView: View {
         let warmupMinutes: Double?
         switch sensorType {
         case .Libre:
-            warmupMinutes = ConstantsMaster.minimumSensorWarmUpRequiredInMinutes
+            // Ottai/Syai maps to the Libre sensor type but has its own 30-minute warm-up
+            warmupMinutes = transmitter?.cgmTransmitterType() == .ottai
+                ? ConstantsMaster.minimumSensorWarmUpRequiredInMinutesOttai
+                : ConstantsMaster.minimumSensorWarmUpRequiredInMinutes
         case .Dexcom:
             if transmitter?.cgmTransmitterType() == .dexcomG7 {
                 warmupMinutes = ConstantsMaster.minimumSensorWarmUpRequiredInMinutesDexcomG7
@@ -776,8 +779,7 @@ struct SensorManagementView: View {
         guard isDexcomG6, let activeSensor else { return rows }
 
         let origin = activeSensor.sensorSessionOrigin
-        let hasStoredInformation = origin != .unknown
-            || activeSensor.requestedSensorCode != nil
+        let hasStoredInformation = activeSensor.requestedSensorCode != nil
             || activeSensor.sensorLabelCode != nil
             || activeSensor.sensorLotNumber != nil
             || activeSensor.sensorSerialNumber != nil
@@ -807,19 +809,7 @@ struct SensorManagementView: View {
             rows.append(.init(title: Texts_HomeView.sensorSerialNumber, value: serialNumber))
         }
 
-        rows.append(.init(title: Texts_HomeView.sensorSessionOrigin, value: sessionOriginText(origin)))
         return rows
-    }
-
-    private func sessionOriginText(_ origin: SensorSessionOrigin) -> String {
-        switch origin {
-        case .unknown: return Texts_HomeView.sensorSessionOriginUnknown
-        case .startRequested: return Texts_HomeView.sensorSessionOriginAwaitingTransmitter
-        case .startedByApp: return Texts_HomeView.sensorSessionOriginStartedByApp
-        case .existingSessionAdopted: return Texts_HomeView.sensorSessionOriginExistingAdopted
-        case .transmitterDetected: return Texts_HomeView.sensorSessionOriginTransmitterDetected
-        case .startRejected: return Texts_HomeView.sensorSessionOriginRejected
-        }
     }
 
 }
