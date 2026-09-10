@@ -687,16 +687,8 @@ class BluetoothPeripheralManager: NSObject {
     /// when user changes M5Stack related settings, then the transmitter need to get that info, add observers
     private func addObservers() {
         
-        UserDefaults.standard.addObserver(self, forKeyPath: UserDefaults.Key.m5StackWiFiName1.rawValue, options: .new, context: nil)
-        UserDefaults.standard.addObserver(self, forKeyPath: UserDefaults.Key.m5StackWiFiName2.rawValue, options: .new, context: nil)
-        UserDefaults.standard.addObserver(self, forKeyPath: UserDefaults.Key.m5StackWiFiName3.rawValue, options: .new, context: nil)
-        UserDefaults.standard.addObserver(self, forKeyPath: UserDefaults.Key.m5StackWiFiPassword1.rawValue, options: .new, context: nil)
-        UserDefaults.standard.addObserver(self, forKeyPath: UserDefaults.Key.m5StackWiFiPassword2.rawValue, options: .new, context: nil)
-        UserDefaults.standard.addObserver(self, forKeyPath: UserDefaults.Key.m5StackWiFiPassword3.rawValue, options: .new, context: nil)
         UserDefaults.standard.addObserver(self, forKeyPath: UserDefaults.Key.m5StackBlePassword.rawValue, options: .new, context: nil)
         UserDefaults.standard.addObserver(self, forKeyPath: UserDefaults.Key.bloodGlucoseUnitIsMgDl.rawValue, options: .new, context: nil)
-        UserDefaults.standard.addObserver(self, forKeyPath: UserDefaults.Key.nightscoutUrl.rawValue, options: .new, context: nil)
-        UserDefaults.standard.addObserver(self, forKeyPath: UserDefaults.Key.nightscoutAPIKey.rawValue, options: .new, context: nil)
         UserDefaults.standard.addObserver(self, forKeyPath: UserDefaults.Key.isMaster.rawValue, options: .new, context: nil)
 
     }
@@ -1125,7 +1117,7 @@ class BluetoothPeripheralManager: NSObject {
         // first check keyValueObserverTimeKeeper
         switch keyPathEnum {
             
-        case UserDefaults.Key.m5StackWiFiName1, UserDefaults.Key.m5StackWiFiName2, UserDefaults.Key.m5StackWiFiName3, UserDefaults.Key.m5StackWiFiPassword1, UserDefaults.Key.m5StackWiFiPassword2, UserDefaults.Key.m5StackWiFiPassword3, UserDefaults.Key.nightscoutAPIKey, UserDefaults.Key.nightscoutUrl, UserDefaults.Key.bloodGlucoseUnitIsMgDl, UserDefaults.Key.m5StackBlePassword :
+        case UserDefaults.Key.bloodGlucoseUnitIsMgDl, UserDefaults.Key.m5StackBlePassword:
             
             // transmittertype change triggered by user, should not be done within 200 ms
             if !keyValueObserverTimeKeeper.verifyKey(forKey: keyPathEnum.rawValue, withMinimumDelayMilliSeconds: 200) {
@@ -1197,24 +1189,6 @@ class BluetoothPeripheralManager: NSObject {
                 
                 switch keyPathEnum {
                     
-                case UserDefaults.Key.m5StackWiFiName1:
-                    success = m5StackBluetoothTransmitter.writeWifiName(name: UserDefaults.standard.m5StackWiFiName1, number: 1)
-                    
-                case UserDefaults.Key.m5StackWiFiName2:
-                    success = m5StackBluetoothTransmitter.writeWifiName(name: UserDefaults.standard.m5StackWiFiName2, number: 2)
-                    
-                case UserDefaults.Key.m5StackWiFiName3:
-                    success = m5StackBluetoothTransmitter.writeWifiName(name: UserDefaults.standard.m5StackWiFiName3, number: 3)
-                    
-                case UserDefaults.Key.m5StackWiFiPassword1:
-                    success = m5StackBluetoothTransmitter.writeWifiPassword(password: UserDefaults.standard.m5StackWiFiPassword1, number: 1)
-                    
-                case UserDefaults.Key.m5StackWiFiPassword2:
-                    success = m5StackBluetoothTransmitter.writeWifiPassword(password: UserDefaults.standard.m5StackWiFiPassword2, number: 2)
-                    
-                case UserDefaults.Key.m5StackWiFiPassword3:
-                    success = m5StackBluetoothTransmitter.writeWifiPassword(password: UserDefaults.standard.m5StackWiFiPassword3, number: 3)
-                    
                 case UserDefaults.Key.m5StackBlePassword:
                     // only if the password in the settings is not nil, and if the m5Stack doesn't have a password yet, then we will store it in the M5Stack.
                     if let blePassword = UserDefaults.standard.m5StackBlePassword, m5Stack.blepassword == nil {
@@ -1223,12 +1197,6 @@ class BluetoothPeripheralManager: NSObject {
                     
                 case UserDefaults.Key.bloodGlucoseUnitIsMgDl:
                     success = m5StackBluetoothTransmitter.writeBloodGlucoseUnit(isMgDl: UserDefaults.standard.bloodGlucoseUnitIsMgDl)
-                    
-                case UserDefaults.Key.nightscoutAPIKey:
-                    success = m5StackBluetoothTransmitter.writeNightscoutAPIKey(apiKey: UserDefaults.standard.nightscoutAPIKey)
-                    
-                case UserDefaults.Key.nightscoutUrl:
-                    success = m5StackBluetoothTransmitter.writeNightscoutUrl(url: UserDefaults.standard.nightscoutUrl)
                     
                 default:
                     break
