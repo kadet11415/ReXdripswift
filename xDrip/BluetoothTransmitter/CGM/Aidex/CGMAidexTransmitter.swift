@@ -96,7 +96,7 @@ class CGMAidexTransmitter: BluetoothTransmitter, CGMTransmitter {
     private var wearDays: Int = 0
 
     /// battery millivolts
-    private var batteryMillivolts: Int = 0
+    private var batteryMillivoltsStorage: Int = 0
 
     /// sensor age (computed from the best available start time).
     /// If the sensor-reported startTimeMs is older than wearDays + 1 day
@@ -119,6 +119,20 @@ class CGMAidexTransmitter: BluetoothTransmitter, CGMTransmitter {
             return 0
         }
         return TimeInterval((Int64(Date().timeIntervalSince1970 * 1000) - effectiveStartMs) / 1000)
+    }
+
+    /// Public battery millivolts for UI display.
+    var batteryMillivolts: Int { batteryMillivoltsStorage }
+
+    /// Sensor age in hours (for UI display).
+    var sensorAgeHours: Int { Int(sensorAge / 3600) }
+
+    /// Remaining sensor life in hours (for UI display).
+    var sensorRemainingHours: Int {
+        guard wearDays > 0, sensorStartTimeMs > 0 else { return 0 }
+        let expiryMs = sensorStartTimeMs + Int64(wearDays) * 86_400_000
+        let remainingMs = expiryMs - Int64(Date().timeIntervalSince1970 * 1000)
+        return max(0, Int(remainingMs / 3_600_000))
     }
 
     // MARK: - Initialization
@@ -611,7 +625,7 @@ extension CGMAidexTransmitter: AidexDriverDelegate {
 
     func aidex(_ sensor: AidexSensor, batteryMillivolts: Int) {
         trace("CGMAidex: batteryMillivolts=%{public}d", log: log, category: ConstantsLog.categoryAidex, type: .info, batteryMillivolts)
-        self.batteryMillivolts = batteryMillivolts
+        self.batteryMillivoltsStorage = batteryMillivolts
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.cGMAidexTransmitterDelegate?.received(batteryMillivolts: batteryMillivolts, from: self)

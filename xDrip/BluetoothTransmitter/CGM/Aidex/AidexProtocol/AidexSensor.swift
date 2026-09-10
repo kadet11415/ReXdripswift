@@ -663,7 +663,20 @@ public final class AidexSensor: NSObject, ObservableObject {
     private func executePostKeyCommands() {
         // Startup device info (0x10) — carries format rev and wearDays.
         if let cmd = commandBuilder.getStartupDeviceInfo(), let f002 {
+            print("[Aidex-DEBUG] executePostKeyCommands: sending 0x10 getStartupDeviceInfo")
             peripheral?.writeValue(cmd, for: f002, type: .withoutResponse)
+        }
+
+        // Startup control sequence: 0x35 (setDynamicAdvMode) → 0x34 (setAutoUpdateStatus).
+        // GX-01S hardware requires this sequence to begin F003 live streaming after
+        // key exchange. Without it, the sensor stays silent even when warmup is complete.
+        // 0x35 ack triggers handleDynamicAdvModeAck → 0x34 → handleAutoUpdateStatusAck.
+        if let cmd = commandBuilder.setDynamicAdvMode(1), let f002 {
+            print("[Aidex-DEBUG] executePostKeyCommands: sending 0x35 setDynamicAdvMode")
+            startupControlStage = .waitDynamicAdvAck
+            peripheral?.writeValue(cmd, for: f002, type: .withoutResponse)
+        } else {
+            print("[Aidex-DEBUG] executePostKeyCommands: WARNING setDynamicAdvMode command is nil")
         }
     }
 
