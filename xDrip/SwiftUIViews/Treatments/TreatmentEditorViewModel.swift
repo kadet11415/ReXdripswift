@@ -13,10 +13,7 @@ import OSLog
 @MainActor final class TreatmentEditorViewModel: ObservableObject {
     // MARK: - public static properties
 
-    /// Permit a small amount of advance entry without allowing accidental future-day treatments.
-    static let maximumFutureTreatmentInterval: TimeInterval = 60 * 60
-
-    static let supportedTreatmentTypes: [TreatmentType] = [.Insulin, .Carbs, .BgCheck, .Exercise, .BasalInjection, .Note]
+    static let supportedTreatmentTypes: [TreatmentType] = [.Insulin, .Carbs, .Exercise, .BgCheck, .Note]
 
     // MARK: - @Published properties
 
@@ -25,29 +22,20 @@ import OSLog
     @Published var enteredValue: String
     @Published var enteredByValue: String
     @Published var enteredNotesValue: String
-    @Published var enteredInsulinDescription: String
     @Published var alertMessage: TreatmentEditorAlertMessage?
-
-    /// Only show the copied-values footer when both fields were prefilled for a new injection.
-    let didPrefillBasalInjection: Bool
 
     // MARK: - private properties
 
     private let coreDataManager: CoreDataManager?
-    // Keep the main-context object for the lifetime of this editor. Its objectID may change
-    // from temporary to permanent while the parent context saves a newly added treatment.
-    private let originalTreatment: TreatmentEntry?
+    private let treatmentToEditObjectID: NSManagedObjectID?
     private let initialTreatmentState: TreatmentEditorInitialState?
     private let log = OSLog(subsystem: ConstantsLog.subSystem, category: ConstantsLog.categoryApplicationDataTreatments)
 
     // MARK: - initialization
 
-    init(coreDataManager: CoreDataManager?, treatmentToEdit: TreatmentEntry?, initialType: TreatmentType = .Carbs) {
-        self.didPrefillBasalInjection = treatmentToEdit == nil && initialType == .BasalInjection
-            && UserDefaults.standard.lastBasalInjectionUnits > 0
-            && !UserDefaults.standard.lastBasalInjectionInsulinDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    init(coreDataManager: CoreDataManager?, treatmentToEdit: TreatmentEntry?) {
         self.coreDataManager = coreDataManager
-        self.originalTreatment = treatmentToEdit
+        self.treatmentToEditObjectID = treatmentToEdit?.objectID
         self.initialTreatmentState = treatmentToEdit.map {
             TreatmentEditorInitialState(
                 selectedType: $0.treatmentType,
@@ -57,12 +45,10 @@ import OSLog
                 notes: $0.notes
             )
         }
-        self.selectedType = treatmentToEdit?.treatmentType ?? initialType
+        self.selectedType = treatmentToEdit?.treatmentType ?? .Carbs
         self.selectedDate = treatmentToEdit?.date ?? Date()
         self.enteredByValue = treatmentToEdit?.enteredBy ?? ConstantsHomeView.applicationName
         self.enteredNotesValue = treatmentToEdit?.notes ?? ""
-        // Editing always uses the saved treatment. Defaults only prefill a new injection draft.
-        self.enteredInsulinDescription = treatmentToEdit?.notes ?? (initialType == .BasalInjection ? UserDefaults.standard.lastBasalInjectionInsulinDescription : "")
 
         if let treatmentToEdit = treatmentToEdit {
             if treatmentToEdit.treatmentType == .Note {
@@ -74,8 +60,6 @@ import OSLog
             } else {
                 self.enteredValue = treatmentToEdit.value.stringWithoutTrailingZeroes
             }
-        } else if initialType == .BasalInjection, UserDefaults.standard.lastBasalInjectionUnits > 0 {
-            self.enteredValue = String(UserDefaults.standard.lastBasalInjectionUnits)
         } else {
             self.enteredValue = ""
         }
@@ -84,12 +68,7 @@ import OSLog
     // MARK: - public computed properties
 
     var isAddMode: Bool {
-        originalTreatment == nil
-    }
-
-    /// BG checks are measurements and retain their existing no-future rule.
-    var latestSelectableDate: Date {
-        Date().addingTimeInterval(selectedType == .BgCheck ? 0 : Self.maximumFutureTreatmentInterval)
+        treatmentToEditObjectID == nil
     }
 
     var navigationTitle: String {
@@ -129,7 +108,7 @@ import OSLog
             return nil
         }
 
-        return selectedType == .BasalInjection ? Texts_TreatmentsView.invalidBasalInjectionValueMessage : Texts_TreatmentsView.invalidValueMessage
+        return Texts_TreatmentsView.invalidValueMessage
     }
 
     var canSaveTreatment: Bool {
@@ -147,12 +126,12 @@ import OSLog
     // MARK: - public functions
 
     func validateSelectedDateIfNeeded() {
-        let latestDate = latestSelectableDate
-        guard selectedDate > latestDate else { return }
+        guard selectedType == .BgCheck else {
+            return
+        }
 
-        // Also enforce the picker bound for restored drafts and direct save calls.
-        selectedDate = latestDate
-        if selectedType == .BgCheck {
+        if selectedDate > Date() {
+            selectedDate = Date()
             alertMessage = TreatmentEditorAlertMessage(
                 title: Texts_Common.warning,
                 message: Texts_TreatmentsView.cannotStoreFutureBGCheck
@@ -167,12 +146,9 @@ import OSLog
             return false
         }
 
-        // The toolbar and save path share the same requirement. Whitespace is not an insulin type.
-        guard selectedType != .BasalInjection || normalizedInsulinDescription() != nil else { return false }
-
         let normalizedNotesValue = normalizedNotesValue()
-        let storedNotesValue = selectedType == .BasalInjection ? normalizedInsulinDescription() : (selectedType == .Note ? normalizedNotesValue : nil)
-        let storedNightscoutEventType = selectedType == .Note || selectedType == .BasalInjection ? ConstantsNightscout.noteEventType : nil
+        let storedNotesValue = selectedType == .Note ? normalizedNotesValue : nil
+        let storedNightscoutEventType = selectedType == .Note ? ConstantsNightscout.noteEventType : nil
         let storedValue: Double
 
         if selectedType == .Note {
@@ -197,11 +173,7 @@ import OSLog
             storedValue = storedValueForCurrentType(value)
         }
 
-        let treatmentToEdit = treatmentToEdit(in: coreDataManager)
-        // An edit whose target was deleted or detached must never fall through to insertion.
-        guard isAddMode || treatmentToEdit != nil else { return false }
-
-        if let treatmentToEdit {
+        if let treatmentToEdit = treatmentToEdit(in: coreDataManager) {
             var treatmentChanged = false
 
             if treatmentToEdit.value != storedValue {
@@ -244,7 +216,7 @@ import OSLog
 
                 // A treatment edit is an explicit user-provoked data change. Keep the developer
                 // trace useful while attaching only the controlled type and treatment date to the
-                // shareable log. Never include the amount, note, entered-by value or server ID.
+                // shareable log; never include the amount, note, entered-by value or server ID.
                 trace(
                     "edited %{public}@ treatment at %{public}@",
                     log: log,
@@ -290,13 +262,6 @@ import OSLog
             setNightscoutSyncRequiredToTrue()
         }
 
-        // Only a successful explicit save updates the next draft. Cancel and failed saves must
-        // leave these preferences alone, and editing a bolus must never replace the basal defaults.
-        if selectedType == .BasalInjection, let units = Int(exactly: storedValue) {
-            UserDefaults.standard.lastBasalInjectionUnits = units
-            UserDefaults.standard.lastBasalInjectionInsulinDescription = storedNotesValue ?? ""
-        }
-
         return true
     }
 
@@ -333,14 +298,7 @@ import OSLog
     // MARK: - private functions
 
     private func normalizedValue() -> Double? {
-        guard let value = enteredValue.toDouble(), value.isFinite else { return nil }
-        // A number pad helps entry, but pasted values still need whole-unit validation.
-        if selectedType == .BasalInjection, Int(exactly: value) == nil { return nil }
-        return value
-    }
-
-    private func normalizedInsulinDescription() -> String? {
-        enteredInsulinDescription.trimmingCharacters(in: .whitespacesAndNewlines).toNilIfLength0()
+        enteredValue.toDouble()
     }
 
     private func normalizedEnteredByValue() -> String? {
@@ -363,12 +321,6 @@ import OSLog
     }
 
     private var currentInputIsValid: Bool {
-        guard selectedDate <= latestSelectableDate else { return false }
-
-        if selectedType == .BasalInjection, normalizedInsulinDescription() == nil {
-            return false
-        }
-
         if selectedType == .Note {
             return normalizedNotesValue() != nil
         }
@@ -389,7 +341,7 @@ import OSLog
     }
 
     private func currentStoredState() -> TreatmentEditorInitialState? {
-        let storedNotesValue = selectedType == .BasalInjection ? normalizedInsulinDescription() : (selectedType == .Note ? normalizedNotesValue() : nil)
+        let storedNotesValue = selectedType == .Note ? normalizedNotesValue() : nil
         let storedValue: Double
 
         if selectedType == .Note {
@@ -412,14 +364,12 @@ import OSLog
     }
 
     private func treatmentToEdit(in coreDataManager: CoreDataManager) -> TreatmentEntry? {
-        guard let originalTreatment,
-              originalTreatment.managedObjectContext === coreDataManager.mainManagedObjectContext,
-              !originalTreatment.isDeleted,
-              !originalTreatment.treatmentdeleted else {
+        guard let treatmentToEditObjectID = treatmentToEditObjectID else {
             return nil
         }
 
-        return originalTreatment
+        return try? coreDataManager.mainManagedObjectContext
+            .existingObject(with: treatmentToEditObjectID) as? TreatmentEntry
     }
 
     private func setNightscoutSyncRequiredToTrue() {

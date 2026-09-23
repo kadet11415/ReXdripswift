@@ -33,7 +33,6 @@ struct AGPChartView: View {
     let showsNowRule: Bool
     let emptyMessage: String
     let fixedPlotWidth: CGFloat?
-    let usesTightRange: Bool
 
     init(
         points: [GlucoseReportAGPPoint],
@@ -42,8 +41,7 @@ struct AGPChartView: View {
         glucosePoints: [AGPChartGlucosePoint] = [],
         showsNowRule: Bool = false,
         emptyMessage: String,
-        fixedPlotWidth: CGFloat? = nil,
-        usesTightRange: Bool = false
+        fixedPlotWidth: CGFloat? = nil
     ) {
         self.points = points
         self.usesMgDl = usesMgDl
@@ -52,7 +50,6 @@ struct AGPChartView: View {
         self.showsNowRule = showsNowRule
         self.emptyMessage = emptyMessage
         self.fixedPlotWidth = fixedPlotWidth
-        self.usesTightRange = usesTightRange
     }
 
     var body: some View {
@@ -115,18 +112,12 @@ struct AGPChartView: View {
         }
     }
 
-    /// Keep the fill, rules and axis labels on the same upper boundary. Other AGP callers
-    /// retain the standard TIR range unless they explicitly select the tight range.
-    private var targetHighMgDl: Double {
-        usesTightRange ? GlucoseReportClinicalConstants.timeInTightRangeHighMgDl : GlucoseReportClinicalConstants.timeInRangeHighMgDl
-    }
-
     @ChartContentBuilder private var targetRange: some ChartContent {
         RectangleMark(
             xStart: .value("Start", 0),
             xEnd: .value("End", 1440),
             yStart: .value("Low target", converted(GlucoseReportClinicalConstants.timeInRangeLowMgDl)),
-            yEnd: .value("High target", converted(targetHighMgDl))
+            yEnd: .value("High target", converted(GlucoseReportClinicalConstants.timeInRangeHighMgDl))
         )
         .foregroundStyle(targetFillColor)
 
@@ -134,7 +125,7 @@ struct AGPChartView: View {
             .lineStyle(StrokeStyle(lineWidth: targetRuleLineWidth))
             .foregroundStyle(agpLowGridLineColor)
 
-        RuleMark(y: .value("High target", converted(targetHighMgDl)))
+        RuleMark(y: .value("High target", converted(GlucoseReportClinicalConstants.timeInRangeHighMgDl)))
             .lineStyle(StrokeStyle(lineWidth: targetRuleLineWidth))
             .foregroundStyle(agpHighGridLineColor)
     }
@@ -287,19 +278,19 @@ struct AGPChartView: View {
     private var yAxisValues: [Double] {
         switch presentation {
         case .statistics:
-            return ([40, 250, 300, 350, 400, 450] + [GlucoseReportClinicalConstants.timeInRangeLowMgDl, targetHighMgDl])
+            return ([40, 250, 300, 350, 400, 450] + [GlucoseReportClinicalConstants.timeInRangeLowMgDl, GlucoseReportClinicalConstants.timeInRangeHighMgDl])
                 .filter { $0 <= dynamicUpperYMgDl }
                 .sorted()
                 .map(converted)
         case .landscapeComparison, .printableReport:
-            return [40, GlucoseReportClinicalConstants.timeInRangeLowMgDl, targetHighMgDl, 250, 300, 350, 400, 450]
+            return [40, GlucoseReportClinicalConstants.timeInRangeLowMgDl, GlucoseReportClinicalConstants.timeInRangeHighMgDl, 250, 300, 350, 400, 450]
                 .filter { $0 <= dynamicUpperYMgDl }
                 .map(converted)
         }
     }
 
     private var objectiveAxisValues: [Double] {
-        [converted(GlucoseReportClinicalConstants.timeInRangeLowMgDl), converted(targetHighMgDl)]
+        [converted(GlucoseReportClinicalConstants.timeInRangeLowMgDl), converted(GlucoseReportClinicalConstants.timeInRangeHighMgDl)]
     }
 
     private var yAxisPosition: AxisMarkPosition {
@@ -365,7 +356,7 @@ struct AGPChartView: View {
             return agpLowGridLineColor
         }
 
-        if isAxisValue(convertedValue, equalTo: converted(targetHighMgDl)) {
+        if isAxisValue(convertedValue, equalTo: converted(GlucoseReportClinicalConstants.timeInRangeHighMgDl)) {
             return agpHighGridLineColor
         }
 

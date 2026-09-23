@@ -234,22 +234,6 @@ public class BgReading: NSManagedObject {
         return BgRangeDescription.inRange
     }
     
-    /// calculates the trend using the nearest older reading with enough elapsed time
-    ///
-    /// very close readings can have a small glucose difference which becomes an extreme
-    /// per-minute slope. Using at least four minutes keeps the arrow based on trend over time.
-    func calculateSlope(lastBgReadings: [BgReading]) -> (Double, Bool) {
-        let minimumTimeInterval = TimeInterval(minutes: Double(ConstantsBGGraphBuilder.minSlopeInMinutes))
-
-        guard let lastBgReading = lastBgReadings
-            .filter({ timeStamp.timeIntervalSince($0.timeStamp) >= minimumTimeInterval })
-            .min(by: { timeStamp.timeIntervalSince($0.timeStamp) < timeStamp.timeIntervalSince($1.timeStamp) }) else {
-            return (0, true)
-        }
-
-        return calculateSlope(lastBgReading: lastBgReading)
-    }
-
     /// taken over form xdripplus
     ///
     /// - parameters:
@@ -258,10 +242,7 @@ public class BgReading: NSManagedObject {
     /// - returns:
     ///     - calculated slope and hideSlope
     func calculateSlope(lastBgReading:BgReading) -> (Double, Bool) {
-        let timeIntervalInMinutes = timeStamp.timeIntervalSince(lastBgReading.timeStamp) / 60.0
-
-        // never create a trend from an equal, newer, very close or discontinuous reading
-        if timeIntervalInMinutes < Double(ConstantsBGGraphBuilder.minSlopeInMinutes) || timeIntervalInMinutes > Double(ConstantsBGGraphBuilder.maxSlopeInMinutes) {
+        if timeStamp == lastBgReading.timeStamp || timeStamp.toMillisecondsAsDouble() - lastBgReading.timeStamp.toMillisecondsAsDouble() > Double(ConstantsBGGraphBuilder.maxSlopeInMinutes * 60 * 1000) {
             return (0, true)
         }
         

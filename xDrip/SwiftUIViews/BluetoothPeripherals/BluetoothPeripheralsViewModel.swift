@@ -9,7 +9,6 @@
 import Combine
 import CoreBluetooth
 import Foundation
-import CoreData
 
 // MARK: - Navigation
 
@@ -17,52 +16,8 @@ import CoreData
 final class BluetoothPeripheralsRouter: ObservableObject {
     @Published var path = [BluetoothPeripheralsRoute]()
 
-    func openPeripheral(
-        _ bluetoothPeripheral: BluetoothPeripheral?,
-        type: BluetoothPeripheralType,
-        dexcomConfiguration: DexcomAddConfiguration? = nil
-    ) {
-        // Return directly to the peripheral list when leaving this detail screen.
-        path = [BluetoothPeripheralsRoute(.peripheral(bluetoothPeripheral, type, dexcomConfiguration))]
-    }
-
-    func showDexcomConnectionMode(type: BluetoothPeripheralType) {
-        path.append(BluetoothPeripheralsRoute(.dexcomConnectionMode(type)))
-    }
-
-    func showSensorCodeCapture(_ capture: DexcomSensorCodeCapture) {
-        path.append(BluetoothPeripheralsRoute(.sensorCodeCapture(capture)))
-    }
-
-    func showManualSensorCodeEntry(_ entry: DexcomManualSensorCodeEntry) {
-        path.append(BluetoothPeripheralsRoute(.manualSensorCodeEntry(entry)))
-    }
-
-    // Collect the identifier before creating the detail screen. See README.md for the full flow.
-    func showDexcomTransmitterID(type: BluetoothPeripheralType, configuration: DexcomAddConfiguration) {
-        let isG6 = type == .DexcomType
-        var entry = BluetoothPeripheralTextEntry(
-            title: Texts_SettingsView.labelTransmitterId,
-            message: isG6 ? Texts_SettingsView.labelGiveTransmitterId : Texts_SettingsView.dexcomG7Message,
-            keyboardType: .alphabet,
-            textInputAutocapitalization: isG6 ? .characters : .words,
-            text: nil,
-            placeholder: isG6 ? "000000" : "DX0000",
-            actionTitle: Texts_HomeView.sensorCodeContinue,
-            cancelTitle: Texts_Common.Cancel,
-            actionHandler: { [weak self] transmitterID in
-                var updatedConfiguration = configuration
-                let identifier = isG6 ? transmitterID.uppercased() : transmitterID
-                updatedConfiguration.transmitterID = identifier.toNilIfLength0()
-                    ?? ConstantsBluetoothPairing.dummyDexcomG7TypeTransmitterId
-                // Keep the setup screen in the stack to avoid a back-and-forward transition.
-                self?.path.append(BluetoothPeripheralsRoute(.peripheral(nil, type, updatedConfiguration)))
-            },
-            actionIsEnabled: { !isG6 || $0.count == 6 },
-            inputValidator: { type.validateTransmitterId(transmitterId: $0) }
-        )
-        entry.dismissAfterSubmit = false
-        showTextEntry(entry)
+    func openPeripheral(_ bluetoothPeripheral: BluetoothPeripheral?, type: BluetoothPeripheralType) {
+        path.append(BluetoothPeripheralsRoute(.peripheral(bluetoothPeripheral, type)))
     }
 
     func showAddPeripheralCategories() {
@@ -81,16 +36,8 @@ final class BluetoothPeripheralsRouter: ObservableObject {
         path.append(BluetoothPeripheralsRoute(.selectionList(selectionList)))
     }
 
-    func showSignalStrength(peripheral: BluetoothPeripheral) {
-        path.append(BluetoothPeripheralsRoute(.signalStrength(peripheral)))
-    }
-
-    func showBatteryHistory(peripheralObjectID: NSManagedObjectID) {
-        path.append(BluetoothPeripheralsRoute(.batteryHistory(peripheralObjectID)))
-    }
-
-    func showReadSuccess(_ display: TransmitterReadSuccessDisplay, transmitterTitle: String) {
-        path.append(BluetoothPeripheralsRoute(.readSuccess(display, transmitterTitle)))
+    func showReadSuccess(_ display: TransmitterReadSuccessDisplay, type: BluetoothPeripheralType) {
+        path.append(BluetoothPeripheralsRoute(.readSuccess(display, type)))
     }
 
     func closeCurrentView() {
@@ -108,15 +55,10 @@ struct BluetoothPeripheralsRoute: Hashable {
     enum Destination {
         case categories
         case types(BluetoothPeripheralCategory)
-        case dexcomConnectionMode(BluetoothPeripheralType)
-        case sensorCodeCapture(DexcomSensorCodeCapture)
-        case manualSensorCodeEntry(DexcomManualSensorCodeEntry)
-        case peripheral(BluetoothPeripheral?, BluetoothPeripheralType, DexcomAddConfiguration?)
+        case peripheral(BluetoothPeripheral?, BluetoothPeripheralType)
         case textEntry(BluetoothPeripheralTextEntry)
         case selectionList(BluetoothPeripheralSelectionList)
-        case readSuccess(TransmitterReadSuccessDisplay, String)
-        case batteryHistory(NSManagedObjectID)
-        case signalStrength(BluetoothPeripheral)
+        case readSuccess(TransmitterReadSuccessDisplay, BluetoothPeripheralType)
     }
 
     let id = UUID()
@@ -133,30 +75,6 @@ struct BluetoothPeripheralsRoute: Hashable {
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
     }
-}
-
-struct DexcomAddConfiguration {
-    let useOtherApp: Bool
-    // Nil means it has not been entered. G7 stores the scan placeholder when left blank.
-    var transmitterID: String?
-    var sensorLabel: DexcomG6SensorLabel?
-    var g6BluetoothSlot: DexcomG6BluetoothSlot = .defaultSlot
-    var g7BluetoothSlot: DexcomG7BluetoothSlot = .defaultSlot
-}
-
-struct DexcomSensorCodeCapture {
-    let configuration: SensorStartCodeView.Configuration
-    let initialCode: String
-    let initialLabel: DexcomG6SensorLabel?
-    let dismissAfterSubmit: Bool
-    let onSubmit: (String, DexcomG6SensorLabel?) -> Void
-}
-
-struct DexcomManualSensorCodeEntry {
-    let title: String
-    let message: String
-    let placeholder: String
-    let onSelect: (String) -> Void
 }
 
 // MARK: - List State
@@ -422,37 +340,7 @@ struct BluetoothPeripheralListRow: Identifiable {
     }
 
     var typeTitle: String {
-        // Resolve configured Dexcom rows from their own transmitter ID. The global active sensor
-        // can belong to another row and must not determine this device's product name.
-        if let dexcomG5 = bluetoothPeripheral as? DexcomG5 {
-            return DexcomProductNameResolver.title(
-                transmitterType: .dexcom,
-                transmitterID: dexcomG5.blePeripheral.transmitterId,
-                bluetoothName: dexcomG5.blePeripheral.name,
-                isAnubis: dexcomG5.isAnubis
-            ) ?? bluetoothPeripheral.bluetoothPeripheralType().bluetoothPeripheralDisplayTitle
-        }
-        if let dexcomG7 = bluetoothPeripheral as? DexcomG7 {
-            // Automatic G7 discovery stores `DX0000` in Core Data before the real Bluetooth name
-            // is known. Use the same resolver as the detail screen so the list does not fall back
-            // to Dexcom G7 when the connected device is actually ONE+ or Stelo.
-            return DexcomProductNameResolver.title(
-                transmitterType: .dexcomG7,
-                transmitterID: dexcomG7.blePeripheral.transmitterId,
-                bluetoothName: dexcomG7.blePeripheral.name
-            ) ?? bluetoothPeripheral.bluetoothPeripheralType().bluetoothPeripheralDisplayTitle
-        }
-        return bluetoothPeripheral.bluetoothPeripheralType().bluetoothPeripheralDisplayTitle
-    }
-
-    var dexcomConnectionMode: DexcomConnectionMode? {
-        if let dexcomG5 = bluetoothPeripheral as? DexcomG5 {
-            return DexcomConnectionMode(useOtherApp: dexcomG5.useOtherApp)
-        }
-        if let dexcomG7 = bluetoothPeripheral as? DexcomG7 {
-            return DexcomConnectionMode(useOtherApp: dexcomG7.useOtherApp)
-        }
-        return nil
+        bluetoothPeripheral.bluetoothPeripheralType().bluetoothPeripheralDisplayTitle
     }
 
 }
@@ -612,15 +500,9 @@ extension BluetoothPeripheralCategory {
     func systemImage(for connectionStatus: BluetoothPeripheralDisplayStatus = .notScanning) -> String {
         switch self {
         case .CGM:
-            // The intended sensor symbols require iOS 26. Use the older sensor tag on earlier versions.
-            if #available(iOS 26.0, *) {
-                return connectionStatus == .connected
-                    ? "sensor.radiowaves.left.and.right.fill"
-                    : "sensor.radiowaves.left.and.right"
-            }
             return connectionStatus == .connected
-                ? "sensor.tag.radiowaves.forward.fill"
-                : "sensor.tag.radiowaves.forward"
+                ? "sensor.radiowaves.left.and.right.fill"
+                : "sensor.radiowaves.left.and.right"
         case .M5Stack:
             return connectionStatus == .connected ? "tv.fill" : "tv"
         case .HeartBeat:

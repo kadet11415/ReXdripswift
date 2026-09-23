@@ -29,9 +29,7 @@ struct RootHomePumpView: View {
             RootHomeHorizontalMetricView(metric: state.basal, valueOpacity: state.isHistorical.rootHomeHistoricalValueOpacity)
             RootHomeHorizontalMetricView(metric: state.reservoir, valueOpacity: state.isHistorical.rootHomeHistoricalValueOpacity)
             RootHomeHorizontalMetricView(metric: state.battery, valueOpacity: state.isHistorical.rootHomeHistoricalValueOpacity)
-            if let cage = state.cage {
-                RootHomeHorizontalMetricView(metric: cage, valueOpacity: state.isHistorical.rootHomeHistoricalValueOpacity)
-            }
+            RootHomeHorizontalMetricView(metric: state.cage, valueOpacity: state.isHistorical.rootHomeHistoricalValueOpacity)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
@@ -44,8 +42,6 @@ struct RootHomePumpView: View {
 
 /// Loop status row displayed below the pump and glucose values.
 struct RootHomeLoopView: View {
-    @State private var selectedMetric: Bool?
-    @State private var showsMetricDetails = false
     let state: RootHomeLoopState
     let actions: RootHomeActions
 
@@ -56,21 +52,18 @@ struct RootHomeLoopView: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-                if state.showsIOB {
-                    metricButton(isIOB: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+        Button(action: actions.showAIDStatus) {
+            HStack(spacing: 0) {
+                RootHomeInlineMetricView(metric: state.iob, valueOpacity: state.isHistorical.rootHomeHistoricalValueOpacity)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 if state.showsCOB {
-                    metricButton(isIOB: false)
+                    RootHomeInlineMetricView(metric: state.cob, valueOpacity: state.isHistorical.rootHomeHistoricalValueOpacity)
                         .frame(width: Layout.inlineMetricWidth, alignment: .leading)
                 }
 
-                if state.showsAIDStatus {
-                    Button(action: actions.showAIDStatus) { loopStatusView }
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                }
+                loopStatusView
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
@@ -78,31 +71,13 @@ struct RootHomeLoopView: View {
             .frame(height: Layout.height)
             .background(panelBackground(isHistorical: state.isHistorical))
             .clipShape(RoundedRectangle(cornerRadius: ConstantsHomeView.standardCornerRadius, style: .continuous))
-        .buttonStyle(.plain)
-        .sheet(isPresented: $showsMetricDetails) {
-            NavigationStack {
-                if let isIOB = selectedMetric, let metrics = state.therapyMetrics {
-                    TherapyMetricDetailsView(metric: isIOB ? metrics.iob : metrics.cob, isIOB: isIOB)
-                }
-            }
         }
+        .buttonStyle(.plain)
         .transaction { transaction in
             // Calculation updates replace label text immediately. Threshold colors animate separately.
             transaction.animation = nil
         }
         .frame(maxHeight: .infinity)
-    }
-
-    private func metricButton(isIOB: Bool) -> some View {
-        let metric = isIOB ? state.therapyMetrics?.iob : state.therapyMetrics?.cob
-        return Button {
-            if metric?.source == .local { selectedMetric = isIOB; showsMetricDetails = true }
-            else { actions.showAIDStatus() }
-        } label: {
-            RootHomeInlineMetricView(metric: isIOB ? state.iob : state.cob, valueOpacity: state.isHistorical.rootHomeHistoricalValueOpacity)
-        }
-        .accessibilityLabel(metric?.accessibilityName(isIOB: isIOB) ?? (isIOB ? "IOB" : "COB"))
-        .accessibilityValue(isIOB ? state.iob.value : state.cob.value)
     }
 
     private var loopStatusView: some View {
@@ -131,8 +106,8 @@ struct RootHomeLoopView: View {
                     .minimumScaleFactor(0.65)
             }
 
-            if let statusSymbol = state.statusSymbol {
-                AIDStatusSymbolImage(symbol: statusSymbol)
+            if let statusSystemImage = state.statusSystemImage {
+                Image(systemName: statusSystemImage)
                     .font(.system(size: Layout.statusSymbolSize, weight: .black))
                     .symbolRenderingMode(.monochrome)
                     .foregroundStyle(state.statusColor)

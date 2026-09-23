@@ -56,12 +56,9 @@ final class SettingsViewDataSourceSettingsViewModel: NSObject, SettingsViewModel
         defaultsObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: UserDefaults.standard,
-            queue: nil
+            queue: .main
         ) { [weak self] _ in
-            // Defaults may be written on a queue that main is waiting for.
-            DispatchQueue.main.async { [weak self] in
-                self?.sectionReloadClosure?()
-            }
+            self?.sectionReloadClosure?()
         }
 
         careLinkStateObserver = CareLinkAccountState.shared.$snapshot

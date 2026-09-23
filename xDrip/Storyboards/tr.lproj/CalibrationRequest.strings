@@ -2,4 +2,3 @@
 "calibration_title" = "Kalibrasyon";
 "calibration_notification_title" = "Kalibrasyon";
 "calibration_notification_body" = "Kalibre etmek için Bildirime tıklayın";
-"previousCalibrationPrefillMessage" = "%@ saatindeki önceki kalibrasyon değeriniz önceden dolduruldu. Onaylamadan önce güncel kan şekeri ölçümünüzle karşılaştırın.";
