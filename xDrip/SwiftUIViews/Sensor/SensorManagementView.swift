@@ -517,7 +517,8 @@ struct SensorManagementView: View {
         elapsedString: String,
         remainingString: String,
         warmupReadyTimeString: String?,
-        sensorInformationRows: [SensorManagementInformationRow]
+        sensorInformationRows: [SensorManagementInformationRow],
+        aidexTransmitter: CGMAidexTransmitter?
     ) -> String {
         var detailLines = [
             Texts_HomeView.sensor + ": " + sensorDescription,
@@ -529,6 +530,22 @@ struct SensorManagementView: View {
 
         if let warmupReadyTimeString {
             detailLines.append(Texts_BluetoothPeripheralView.warmingUpUntil + ": " + warmupReadyTimeString)
+        }
+
+        // Aidex-specific metadata: battery and sensor age
+        if let aidex = aidexTransmitter {
+            if aidex.batteryMillivolts > 0 {
+                let volts = String(format: "%.2f", Double(aidex.batteryMillivolts) / 1000.0)
+                detailLines.append("Battery: \(volts) V")
+            }
+            let ageHours = aidex.sensorAgeHours
+            let remainingHours = aidex.sensorRemainingHours
+            if ageHours > 0 {
+                detailLines.append("Sensor Age: \(ageHours)h")
+            }
+            if remainingHours > 0 {
+                detailLines.append("Sensor Remaining: \(remainingHours)h")
+            }
         }
 
         if !sensorInformationRows.isEmpty {
@@ -575,11 +592,17 @@ struct SensorManagementView: View {
             dexcomConnectionMode = nil
         }
         let isAnubis = transmitter?.isAnubisG6() ?? false
-        let warmupMinutes: Double?
 
+        // Aidex warmup depends on elapsedMinutes, so compute that first
+        let elapsedMinutes = startDate.map { Double(Calendar.current.dateComponents([.minute], from: $0, to: Date()).minute ?? 0) }
+
+        let warmupMinutes: Double?
         switch sensorType {
         case .Libre:
-            warmupMinutes = ConstantsMaster.minimumSensorWarmUpRequiredInMinutes
+            // Ottai/Syai maps to the Libre sensor type but has its own 30-minute warm-up
+            warmupMinutes = transmitter?.cgmTransmitterType() == .ottai
+                ? ConstantsMaster.minimumSensorWarmUpRequiredInMinutesOttai
+                : ConstantsMaster.minimumSensorWarmUpRequiredInMinutes
         case .Dexcom:
             if transmitterType == .dexcomG7 {
                 warmupMinutes = ConstantsMaster.minimumSensorWarmUpRequiredInMinutesDexcomG7
@@ -588,17 +611,18 @@ struct SensorManagementView: View {
             }
         case .Medtrum:
             warmupMinutes = nil
+        case .Aidex:
+            warmupMinutes = (elapsedMinutes ?? 0) < ConstantsAidex.warmupMinutes ? ConstantsAidex.warmupMinutes : nil
         case .none:
             warmupMinutes = nil
         }
 
-        let elapsedMinutes = startDate.map { Double(Calendar.current.dateComponents([.minute], from: $0, to: Date()).minute ?? 0) }
         let remainingMinutes = (elapsedMinutes != nil && maxSensorAgeInDays > 0) ? ((maxSensorAgeInDays * 24 * 60) - (elapsedMinutes ?? 0)) : nil
         let expiryDate = startDate.map { $0.addingTimeInterval(TimeInterval(days: maxSensorAgeInDays)) }
 
         let warmupReadyTimeString: String?
-        if let startDate = startDate, let warmupMinutes = warmupMinutes, let elapsedMinutes = elapsedMinutes, elapsedMinutes < warmupMinutes {
-            let readyDate = startDate.addingTimeInterval(TimeInterval(minutes: warmupMinutes))
+        if let startDate = startDate, let wm = warmupMinutes, let elapsedMinutes = elapsedMinutes, elapsedMinutes < wm {
+            let readyDate = startDate.addingTimeInterval(TimeInterval(minutes: wm))
             warmupReadyTimeString = readyDate.toStringInUserLocale(timeStyle: .short, dateStyle: .none)
         } else {
             warmupReadyTimeString = nil
@@ -688,10 +712,12 @@ struct SensorManagementView: View {
         let sessionLifetimeString = elapsedString
         let sessionLifetimeColor = Color(.colorSecondary)
 
+        let aidexTransmitter = transmitter as? CGMAidexTransmitter
         let sensorInformationRows = sensorInformationRows(
             activeSensor: activeSensor,
             isDexcomG6: transmitter?.needsSensorStartCode() == true,
-            dexcomG7SensorLabel: dexcomG7?.storedSensorLabel
+            dexcomG7SensorLabel: dexcomG7?.storedSensorLabel,
+            aidexTransmitter: aidexTransmitter
         )
 
         let sensorDetailsMessage = sensorDetailsMessage(
@@ -701,7 +727,8 @@ struct SensorManagementView: View {
             elapsedString: elapsedString,
             remainingString: displayRemainingString,
             warmupReadyTimeString: warmupReadyTimeString,
-            sensorInformationRows: sensorInformationRows
+            sensorInformationRows: sensorInformationRows,
+            aidexTransmitter: aidexTransmitter
         )
 
         let noiseMeasurementsDetail: String?
@@ -899,22 +926,46 @@ struct SensorManagementView: View {
     private func sensorInformationRows(
         activeSensor: Sensor?,
         isDexcomG6: Bool,
-        dexcomG7SensorLabel: DexcomG6SensorLabel?
+    private func sensorInformationRows(
+        activeSensor: Sensor?,
+        isDexcomG6: Bool,
+        dexcomG7SensorLabel: DexcomG6SensorLabel? = nil,
+        aidexTransmitter: CGMAidexTransmitter? = nil
     ) -> [SensorManagementInformationRow] {
+        var rows: [SensorManagementInformationRow] = []
+
+        // Dexcom G7 rows (from master)
         if let dexcomG7SensorLabel {
             return sensorInformationRows(label: dexcomG7SensorLabel)
         }
 
-        guard isDexcomG6, let activeSensor else { return [] }
+        // Aidex-specific rows (from develop)
+        if let aidex = aidexTransmitter {
+            if aidex.batteryMillivolts > 0 {
+                let volts = String(format: "%.2f", Double(aidex.batteryMillivolts) / 1000.0)
+                rows.append(.init(title: "Battery", value: "\(volts) V"))
+            }
+            let ageHours = aidex.sensorAgeHours
+            if ageHours > 0 {
+                rows.append(.init(title: "Sensor Age", value: "\(ageHours)h"))
+            }
+            let remainingHours = aidex.sensorRemainingHours
+            if remainingHours > 0 {
+                rows.append(.init(title: "Sensor Remaining", value: "\(remainingHours)h"))
+            }
+            return rows
+        }
+
+        // Dexcom G6 rows
+        guard isDexcomG6, let activeSensor else { return rows }
 
         let origin = activeSensor.sensorSessionOrigin
         let hasStoredInformation = activeSensor.requestedSensorCode != nil
             || activeSensor.sensorLabelCode != nil
             || activeSensor.sensorLotNumber != nil
             || activeSensor.sensorSerialNumber != nil
-        guard hasStoredInformation else { return [] }
+        guard hasStoredInformation else { return rows }
 
-        var rows: [SensorManagementInformationRow] = []
         let activeCode = activeSensor.activeSensorCode
 
         if let labelCode = activeSensor.sensorLabelCode {

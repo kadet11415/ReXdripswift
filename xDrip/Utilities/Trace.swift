@@ -666,11 +666,20 @@ class Trace {
                         
                     case .Libre2Type:
                         if blePeripheral.libre2 != nil {
-                            
+
                             traceInfo.appendStringAndNewLine("        Type: " + bluetoothPeripheralType.rawValue)
                             
                         }
-                        
+
+                    case .OttaiType:
+                        if blePeripheral.ottai != nil {
+
+                            traceInfo.appendStringAndNewLine("        Type: " + bluetoothPeripheralType.rawValue)
+                            traceInfo.appendStringAndNewLine("    Upload to Syai cloud: " + OttaiRegistry.loadCloudUploadEnabled().description)
+                            traceInfo.appendStringAndNewLine("    Last Syai upload: " + OttaiRegistry.loadCloudUploadStatus())
+
+                        }
+
                     case .Libre3HeartBeatType:
                         if blePeripheral.libre2heartbeat != nil {
                             
@@ -751,6 +760,18 @@ class Trace {
                             traceInfo.appendStringAndNewLine("        Type: " + bluetoothPeripheralType.rawValue)
                             if let firmware = medtrumNano.firmware {
                                 traceInfo.appendStringAndNewLine("        Firmware: " + firmware)
+                            }
+                        }
+
+                    case .AidexType:
+                        if let aidex = blePeripheral.aidex {
+
+                            traceInfo.appendStringAndNewLine("        Type: " + bluetoothPeripheralType.rawValue)
+                            if let fw = aidex.firmwareVersion {
+                                traceInfo.appendStringAndNewLine("        Firmware: " + fw)
+                            }
+                            if let model = aidex.modelName {
+                                traceInfo.appendStringAndNewLine("        Model: " + model)
                             }
                         }
                     }

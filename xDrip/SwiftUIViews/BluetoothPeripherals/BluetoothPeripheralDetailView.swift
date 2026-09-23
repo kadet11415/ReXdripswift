@@ -101,6 +101,19 @@ struct BluetoothPeripheralDetailView: View {
         .onChange(of: scenePhase) { phase in
             state.updateSignalStrengthPolling(active: phase == .active)
         }
+        .sheet(isPresented: Binding<Bool>(
+            get: { state.discoveredAidexDevices != nil },
+            set: { if !$0 { state.discoveredAidexDevices = nil } }
+        )) {
+            if let devices = state.discoveredAidexDevices {
+                AidexDevicePickerView(
+                    devices: devices,
+                    onSelect: { state.selectAidexDevice($0) },
+                    onCancel: { state.discoveredAidexDevices = nil }
+                )
+            }
+        }
+        .onAppear(perform: state.start)
         .frame(maxWidth: UIDevice.current.userInterfaceIdiom == .pad ? 780 : .infinity)
         .frame(maxWidth: .infinity)
     }
@@ -287,12 +300,21 @@ struct BluetoothPeripheralTextEntryView: View {
             }
 
             Section {
-                TextField(textEntry.placeholder ?? "", text: $text)
-                    .keyboardType(textEntry.keyboardType)
-                    .textInputAutocapitalization(textEntry.textInputAutocapitalization)
-                    .autocorrectionDisabled()
-                    .submitLabel(.done)
-                    .onSubmit(submit)
+                if textEntry.isSecureTextEntry {
+                    SecureField(textEntry.placeholder ?? "", text: $text)
+                        .keyboardType(textEntry.keyboardType)
+                        .textInputAutocapitalization(textEntry.textInputAutocapitalization)
+                        .autocorrectionDisabled()
+                        .submitLabel(.done)
+                        .onSubmit(submit)
+                } else {
+                    TextField(textEntry.placeholder ?? "", text: $text)
+                        .keyboardType(textEntry.keyboardType)
+                        .textInputAutocapitalization(textEntry.textInputAutocapitalization)
+                        .autocorrectionDisabled()
+                        .submitLabel(.done)
+                        .onSubmit(submit)
+                }
             }
 
             if let validationMessage {
