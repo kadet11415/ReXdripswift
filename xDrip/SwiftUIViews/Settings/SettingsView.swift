@@ -280,17 +280,15 @@ private struct SettingsIPadSidebarView: View {
 }
 
 /// Creates a fresh list model for one grouped child Settings screen.
-struct SettingsScreenDestinationView: View {
+private struct SettingsScreenDestinationView: View {
     @StateObject private var listModel: SettingsListModel
     @ObservedObject private var presenter: SettingsActionPresenter
-    private let introduction: (() -> String)?
     private let title: String
     private let onlineHelpTopic: OnlineHelpTopic?
     private let toolbarActions: @MainActor () -> [SettingsToolbarAction]
 
     init(settingsScreen: SettingsScreen, presenter: SettingsActionPresenter) {
         self.presenter = presenter
-        self.introduction = settingsScreen.introduction
         self.title = settingsScreen.title
         self.onlineHelpTopic = settingsScreen.onlineHelpTopic
         self.toolbarActions = settingsScreen.toolbarActions
@@ -305,8 +303,7 @@ struct SettingsScreenDestinationView: View {
             presenter: presenter,
             title: title,
             titleDisplayMode: .large,
-            showsSectionHeaders: true,
-            introduction: introduction
+            showsSectionHeaders: true
         )
         .onAppear {
             listModel.reload(.all)
@@ -598,10 +595,10 @@ struct SettingsViewGroupedSettingsViewModel: SettingsViewModelProtocol, Settings
                             onlineHelpTopic: .glucoseDisplay,
                             providers: {
                                 [
-                                    SettingsViewHomeScreenSettingsViewModel(rowGroup: .layout),
                                     SettingsViewHomeScreenSettingsViewModel(rowGroup: .mainChart),
-                                    SettingsViewHomeScreenSettingsViewModel(rowGroup: .treatments),
-                                    SettingsViewHomeScreenSettingsViewModel(rowGroup: .screenLockLink)
+                                    SettingsViewHomeScreenSettingsViewModel(rowGroup: .miniChart),
+                                    SettingsViewHomeScreenSettingsViewModel(rowGroup: .sensorLifetime),
+                                    SettingsViewHomeScreenSettingsViewModel(rowGroup: .screenLock)
                                 ]
                             }
                         )
@@ -617,11 +614,6 @@ struct SettingsViewGroupedSettingsViewModel: SettingsViewModelProtocol, Settings
                             providers: { [SettingsViewHomeScreenSettingsViewModel(rowGroup: .glucoseRanges)] }
                         )
                     }
-                ),
-                SettingsGroupedRow(
-                    id: "general.treatmentSettings",
-                    title: TherapyTexts.text("treatmentSettings"),
-                    settingsScreen: { TreatmentSettingsViewModel.screen }
                 ),
                 SettingsGroupedRow(
                     id: "glucoseDisplay.statistics",
@@ -828,19 +820,13 @@ struct SettingsViewGroupedSettingsViewModel: SettingsViewModelProtocol, Settings
                     id: "sharingServices.speakReadings",
                     title: Texts_SettingsView.sectionTitleSpeak,
                     detail: {
-                        UserDefaults.standard.speakReadings ? Texts_Common.enabled : Texts_Common.disabled
-                    },
-                    detailIndicator: {
-                        SettingsIndicator(color: SettingsViewSpeakSettingsViewModel.speechStatus(isParent: true).color)
+                        groupedStatusDetail(isEnabled: UserDefaults.standard.speakReadings)
                     },
                     settingsScreen: {
                         SettingsScreen(
                             title: Texts_SettingsView.sectionTitleSpeak,
                             onlineHelpTopic: .speakGlucose,
-                            makeSections: { presenter in
-                                SettingsListFactory.makeSections(providers: [SettingsViewSpeakSettingsViewModel()], presenter: presenter)
-                                    + [SettingsSectionModel(id: 1) { SettingsViewSpeakSettingsViewModel.scheduleSection() }]
-                            }
+                            providers: { [SettingsViewSpeakSettingsViewModel()] }
                         )
                     }
                 ),
@@ -882,9 +868,7 @@ struct SettingsViewGroupedSettingsViewModel: SettingsViewModelProtocol, Settings
     private static func calendarShareStatusDetail() -> String? {
         guard calendarShareRowIsEnabled() else { return Texts_Common.disabled }
         guard UserDefaults.standard.createCalendarEvent else { return nil }
-        // Match the other parent rows for normal operation, while retaining useful problem states.
-        let status = calendarShareStatus()
-        return status == .active ? Texts_Common.enabled : status.description
+        return calendarShareStatus().description
     }
 
     /// Adds the same status dot used by the Calendar Share child status row.

@@ -37,7 +37,6 @@ class SettingsViewNotificationsSettingsViewModel: NSObject, SettingsViewModelPro
     private let log = OSLog(subsystem: ConstantsLog.subSystem, category: ConstantsLog.categorySettingsViewDataSourceSettingsViewModel)
 
     private let rowGroup: NotificationSettingsRowGroup
-    private var therapyMetricsObserver: NSObjectProtocol?
     
     // MARK: - Native SwiftUI rows
 
@@ -138,16 +137,6 @@ class SettingsViewNotificationsSettingsViewModel: NSObject, SettingsViewModelPro
             }
             return [
                 liveActivityTypeRow,
-                SettingsRow(
-                    id: "notifications.liveActivityShowIOBCOB",
-                    title: TherapyTexts.text("showIOBCOB"),
-                    control: .toggle(
-                        isOn: { UserDefaults.standard.liveActivityShowIOBCOB },
-                        setIsOn: { UserDefaults.standard.liveActivityShowIOBCOB = $0 }
-                    ),
-                    isEnabled: therapyTrackingAvailable,
-                    isVisible: liveActivitiesAvailable && UserDefaults.standard.liveActivityType != .disabled
-                ),
                 SettingsRow(
                     id: "notifications.liveActivityPreview",
                     title: Texts_SettingsView.liveActivityStyle,
@@ -405,16 +394,7 @@ class SettingsViewNotificationsSettingsViewModel: NSObject, SettingsViewModelPro
     
 
     func settingsSectionFooter() -> String? {
-        guard rowGroup == .liveActivities else { return nil }
-        guard liveActivitiesAvailable else { return Texts_SettingsView.liveActivityDisabledInFollowerModeMessage }
-        guard UserDefaults.standard.liveActivityType != .disabled else { return nil }
-        return TherapyTexts.text(therapyTrackingAvailable ? "liveActivityMetricsFooter" : "liveActivityMetricsUnavailable")
-    }
-
-    private var therapyTrackingAvailable: Bool {
-        let policy = UserDefaults.standard.dataFlowPolicy
-        return policy.externalIOBSource != nil || policy.externalCOBSource != nil
-            || TherapyMetricsManager.shared.snapshot().hasVisibleMetrics
+        rowGroup == .liveActivities && !liveActivitiesAvailable ? Texts_SettingsView.liveActivityDisabledInFollowerModeMessage : nil
     }
 
     private var notificationIntervalDetailText: String {
@@ -458,10 +438,6 @@ class SettingsViewNotificationsSettingsViewModel: NSObject, SettingsViewModelPro
     // MARK: - observe functions
     
     private func addObservers() {
-        therapyMetricsObserver = NotificationCenter.default.addObserver(forName: TherapyMetricsManager.changed, object: nil, queue: .main) { [weak self] _ in
-            self?.sectionReloadClosure?()
-        }
-        UserDefaults.standard.addObserver(self, forKeyPath: UserDefaults.Key.liveActivityShowIOBCOB.rawValue, options: .new, context: nil)
         
         // Listen for changes in the active sensor value to trigger the UI to be updated
         UserDefaults.standard.addObserver(self, forKeyPath: UserDefaults.Key.followerBackgroundKeepAliveType.rawValue, options: .new, context: nil)
@@ -479,8 +455,7 @@ class SettingsViewNotificationsSettingsViewModel: NSObject, SettingsViewModelPro
         switch keyPathEnum {
         case UserDefaults.Key.followerBackgroundKeepAliveType,
              UserDefaults.Key.liveActivityType,
-             UserDefaults.Key.carPlayLiveActivityType,
-             UserDefaults.Key.liveActivityShowIOBCOB:
+             UserDefaults.Key.carPlayLiveActivityType:
             
             // we have to run this in the main thread to avoid access errors
             DispatchQueue.main.async {
@@ -490,13 +465,6 @@ class SettingsViewNotificationsSettingsViewModel: NSObject, SettingsViewModelPro
         default:
             break
             
-        }
-    }
-
-    deinit {
-        if let therapyMetricsObserver { NotificationCenter.default.removeObserver(therapyMetricsObserver) }
-        for key in [UserDefaults.Key.followerBackgroundKeepAliveType, .liveActivityType, .carPlayLiveActivityType, .liveActivityShowIOBCOB] {
-            UserDefaults.standard.removeObserver(self, forKeyPath: key.rawValue)
         }
     }
 }

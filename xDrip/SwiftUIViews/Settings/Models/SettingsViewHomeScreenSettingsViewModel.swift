@@ -54,10 +54,9 @@ fileprivate enum Setting:Int, CaseIterable {
 enum SettingsViewHomeScreenSettingsRowGroup {
     case all
     case homeScreen
-    case layout
     case mainChart
-    case treatments
-    case screenLockLink
+    case miniChart
+    case sensorLifetime
     case screenLock
     case glucoseRanges
 }
@@ -118,56 +117,24 @@ class SettingsViewHomeScreenSettingsViewModel: NSObject, SettingsViewModelProtoc
             }
         )
 
-        let layoutRows = [
-            SettingsRow(id: "homeScreen.showTherapySummary", title: TherapyTexts.text("summary"), control: .toggle(isOn: { UserDefaults.standard.showTherapySummary }, setIsOn: { UserDefaults.standard.showTherapySummary = $0 }), isEnabled: UserDefaults.standard.showTreatmentsOnChart),
-            nativeSettingsRow(id: "homeScreen.showMiniChart", index: Setting.showMiniChart.rawValue, sectionID: sectionID),
-            SettingsRow(id: "homeScreen.showStatistics", title: Texts_SettingsView.labelShowStatistics, control: .toggle(isOn: { UserDefaults.standard.showStatistics }, setIsOn: { UserDefaults.standard.showStatistics = $0 })),
-            SettingsRow(id: "homeScreen.preferSensorCountdown", title: Texts_SettingsView.homeScreenSensorLifetimeSectionTitle, control: .menu(
-                options: {
-                    [SettingsMenuOption(title: Texts_SettingsView.sensorLifetimeElapsed, isSelected: !UserDefaults.standard.preferSensorCountdown),
-                     SettingsMenuOption(title: Texts_SettingsView.sensorLifetimeRemaining, isSelected: UserDefaults.standard.preferSensorCountdown)]
-                },
-                selectOption: { index in
-                    guard (0...1).contains(index) else { return }
-                    UserDefaults.standard.preferSensorCountdown = index == 1
-                }
-            ))
-        ]
-
         let mainChartRows = [
-            mainChartHoursRow,
-            nativeSettingsRow(id: "homeScreen.allowScreenRotation", index: Setting.allowScreenRotation.rawValue, sectionID: sectionID),
             nativeSettingsRow(id: "homeScreen.showOriginalBGReadings", index: Setting.showOriginalBGReadings.rawValue, sectionID: sectionID),
-            nativeSettingsRow(id: "homeScreen.showSensorNoise", index: Setting.showSensorNoise.rawValue, sectionID: sectionID)
+            nativeSettingsRow(id: "homeScreen.showSensorNoise", index: Setting.showSensorNoise.rawValue, sectionID: sectionID),
+            mainChartHoursRow
         ]
 
-        // Treatments gates basal and curves without changing their saved preferences.
-        let treatmentRows = [
-            SettingsRow(id: "homeScreen.showTreatments", title: Texts_SettingsView.settingsviews_showTreatments, control: .toggle(isOn: { UserDefaults.standard.showTreatmentsOnChart }, setIsOn: { UserDefaults.standard.showTreatmentsOnChart = $0 }), reloadScope: .all),
-            SettingsRow(id: "homeScreen.showIOBCOB", title: TherapyTexts.text("curves"), control: .toggle(isOn: { UserDefaults.standard.showIOBCOB }, setIsOn: { UserDefaults.standard.showIOBCOB = $0 }), isVisible: UserDefaults.standard.showTreatmentsOnChart),
-            SettingsRow(id: "homeScreen.renderBasalDownwards", title: Texts_SettingsView.basalPosition, control: .menu(
-                options: {
-                    [SettingsMenuOption(title: Texts_SettingsView.basalPositionTop, isSelected: UserDefaults.standard.renderBasalDownwards),
-                     SettingsMenuOption(title: Texts_SettingsView.basalPositionBottom, isSelected: !UserDefaults.standard.renderBasalDownwards)]
-                },
-                selectOption: { index in
-                    guard (0...1).contains(index) else { return }
-                    UserDefaults.standard.renderBasalDownwards = index == 0
-                }
-            ), isVisible: UserDefaults.standard.showTreatmentsOnChart)
+        let miniChartRows = [
+            nativeSettingsRow(id: "homeScreen.showMiniChart", index: Setting.showMiniChart.rawValue, sectionID: sectionID)
         ]
 
         let screenLockRows = [
+            nativeSettingsRow(id: "homeScreen.allowScreenRotation", index: Setting.allowScreenRotation.rawValue, sectionID: sectionID),
             nativeSettingsRow(id: "homeScreen.showClockWhenScreenIsLocked", index: Setting.showClockWhenScreenIsLocked.rawValue, sectionID: sectionID),
             screenLockDimmingRow
         ]
 
-        let screenLockLinkRows = [
-            SettingsRow(id: "homeScreen.screenLock", title: Texts_SettingsView.homeScreenScreenLockSectionTitle, accessory: .disclosure, action: .settingsScreen {
-                SettingsScreen(title: Texts_SettingsView.homeScreenScreenLockSectionTitle, onlineHelpTopic: .glucoseDisplay, providers: {
-                    [SettingsViewHomeScreenSettingsViewModel(rowGroup: .screenLock)]
-                })
-            })
+        let sensorLifetimeRows = [
+            nativeSettingsRow(id: "homeScreen.preferSensorCountdown", index: Setting.preferSensorCountdown.rawValue, sectionID: sectionID)
         ]
 
         let glucoseRangeRows = [
@@ -180,17 +147,15 @@ class SettingsViewHomeScreenSettingsViewModel: NSObject, SettingsViewModelProtoc
 
         switch rowGroup {
         case .all:
-            return layoutRows + mainChartRows + treatmentRows + screenLockLinkRows + glucoseRangeRows
+            return mainChartRows + miniChartRows + sensorLifetimeRows + screenLockRows + glucoseRangeRows
         case .homeScreen:
-            return layoutRows + mainChartRows + treatmentRows + screenLockLinkRows
-        case .layout:
-            return layoutRows
+            return mainChartRows + miniChartRows + sensorLifetimeRows + screenLockRows
         case .mainChart:
             return mainChartRows
-        case .treatments:
-            return treatmentRows
-        case .screenLockLink:
-            return screenLockLinkRows
+        case .miniChart:
+            return miniChartRows
+        case .sensorLifetime:
+            return sensorLifetimeRows
         case .screenLock:
             return screenLockRows
         case .glucoseRanges:
@@ -257,10 +222,6 @@ class SettingsViewHomeScreenSettingsViewModel: NSObject, SettingsViewModelProtoc
     }
     
     func isEnabled(index: Int) -> Bool {
-        if Setting(rawValue: index) == .showOriginalBGReadings {
-            // Match the chart: original readings are relevant to adjustment and smoothing.
-            return UserDefaults.standard.enableAdjustment || UserDefaults.standard.enableSmoothing
-        }
         return true
     }
     
@@ -270,19 +231,19 @@ class SettingsViewHomeScreenSettingsViewModel: NSObject, SettingsViewModelProtoc
         switch setting {
             
         case .urgentHighMarkValue:
-            return SettingsSelectedRowAction.askText(title: Texts_SettingsView.labelUrgentHighValue, message: Texts_SettingsView.urgentHighValueMessage, keyboardType: UserDefaults.standard.bloodGlucoseUnitIsMgDl ? .numberPad:.decimalPad, text: UserDefaults.standard.urgentHighMarkValueInUserChosenUnitRounded, placeHolder: ConstantsBGGraphBuilder.defaultUrgentHighMarkInMgdl.mgDlToMmolAndToString(mgDl: UserDefaults.standard.bloodGlucoseUnitIsMgDl), fieldTitle: Texts_Common.enterValue, unitText: glucoseUnitText, actionTitle: nil, cancelTitle: nil, actionHandler: {(urgentHighMarkValue:String) in UserDefaults.standard.urgentHighMarkValueInUserChosenUnitRounded = urgentHighMarkValue}, cancelHandler: nil, inputValidator: nil)
+            return SettingsSelectedRowAction.askText(title: Texts_SettingsView.labelUrgentHighValue, message: Texts_SettingsView.urgentHighValueMessage, keyboardType: UserDefaults.standard.bloodGlucoseUnitIsMgDl ? .numberPad:.decimalPad, text: UserDefaults.standard.urgentHighMarkValueInUserChosenUnitRounded, placeHolder: ConstantsBGGraphBuilder.defaultUrgentHighMarkInMgdl.description, fieldTitle: Texts_Common.enterValue, unitText: glucoseUnitText, actionTitle: nil, cancelTitle: nil, actionHandler: {(urgentHighMarkValue:String) in UserDefaults.standard.urgentHighMarkValueInUserChosenUnitRounded = urgentHighMarkValue}, cancelHandler: nil, inputValidator: nil)
             
         case .highMarkValue:
-            return SettingsSelectedRowAction.askText(title: Texts_SettingsView.labelHighValue, message: Texts_SettingsView.highValueMessage, keyboardType: UserDefaults.standard.bloodGlucoseUnitIsMgDl ? .numberPad:.decimalPad, text: UserDefaults.standard.highMarkValueInUserChosenUnitRounded, placeHolder: ConstantsBGGraphBuilder.defaultHighMarkInMgdl.mgDlToMmolAndToString(mgDl: UserDefaults.standard.bloodGlucoseUnitIsMgDl), fieldTitle: Texts_Common.enterValue, unitText: glucoseUnitText, actionTitle: nil, cancelTitle: nil, actionHandler: {(highMarkValue:String) in UserDefaults.standard.highMarkValueInUserChosenUnitRounded = highMarkValue}, cancelHandler: nil, inputValidator: nil)
+            return SettingsSelectedRowAction.askText(title: Texts_SettingsView.labelHighValue, message: Texts_SettingsView.highValueMessage, keyboardType: UserDefaults.standard.bloodGlucoseUnitIsMgDl ? .numberPad:.decimalPad, text: UserDefaults.standard.highMarkValueInUserChosenUnitRounded, placeHolder: ConstantsBGGraphBuilder.defaultHighMarkInMgdl.description, fieldTitle: Texts_Common.enterValue, unitText: glucoseUnitText, actionTitle: nil, cancelTitle: nil, actionHandler: {(highMarkValue:String) in UserDefaults.standard.highMarkValueInUserChosenUnitRounded = highMarkValue}, cancelHandler: nil, inputValidator: nil)
             
         case .targetMarkValue:
-            return SettingsSelectedRowAction.askText(title: Texts_SettingsView.labelTargetValue, message: Texts_SettingsView.targetValueMessage, keyboardType: UserDefaults.standard.bloodGlucoseUnitIsMgDl ? .numberPad:.decimalPad, text: UserDefaults.standard.targetMarkValueInUserChosenUnitRounded, placeHolder: ConstantsBGGraphBuilder.defaultTargetMarkInMgdl.mgDlToMmolAndToString(mgDl: UserDefaults.standard.bloodGlucoseUnitIsMgDl), fieldTitle: Texts_Common.enterValue, unitText: glucoseUnitText, actionTitle: nil, cancelTitle: nil, actionHandler: {(targetMarkValue:String) in UserDefaults.standard.targetMarkValueInUserChosenUnitRounded = targetMarkValue}, cancelHandler: nil, inputValidator: nil)
+            return SettingsSelectedRowAction.askText(title: Texts_SettingsView.labelTargetValue, message: Texts_SettingsView.targetValueMessage, keyboardType: UserDefaults.standard.bloodGlucoseUnitIsMgDl ? .numberPad:.decimalPad, text: UserDefaults.standard.targetMarkValueInUserChosenUnitRounded, placeHolder: ConstantsBGGraphBuilder.defaultTargetMarkInMgdl.description, fieldTitle: Texts_Common.enterValue, unitText: glucoseUnitText, actionTitle: nil, cancelTitle: nil, actionHandler: {(targetMarkValue:String) in UserDefaults.standard.targetMarkValueInUserChosenUnitRounded = targetMarkValue}, cancelHandler: nil, inputValidator: nil)
             
         case .lowMarkValue:
-            return SettingsSelectedRowAction.askText(title: Texts_SettingsView.labelLowValue, message: Texts_SettingsView.lowValueMessage, keyboardType: UserDefaults.standard.bloodGlucoseUnitIsMgDl ? .numberPad:.decimalPad, text: UserDefaults.standard.lowMarkValueInUserChosenUnitRounded, placeHolder: ConstantsBGGraphBuilder.defaultLowMarkInMgdl.mgDlToMmolAndToString(mgDl: UserDefaults.standard.bloodGlucoseUnitIsMgDl), fieldTitle: Texts_Common.enterValue, unitText: glucoseUnitText, actionTitle: nil, cancelTitle: nil, actionHandler: {(lowMarkValue:String) in UserDefaults.standard.lowMarkValueInUserChosenUnitRounded = lowMarkValue}, cancelHandler: nil, inputValidator: nil)
+            return SettingsSelectedRowAction.askText(title: Texts_SettingsView.labelLowValue, message: Texts_SettingsView.lowValueMessage, keyboardType: UserDefaults.standard.bloodGlucoseUnitIsMgDl ? .numberPad:.decimalPad, text: UserDefaults.standard.lowMarkValueInUserChosenUnitRounded, placeHolder: ConstantsBGGraphBuilder.defaultLowMarkInMgdl.description, fieldTitle: Texts_Common.enterValue, unitText: glucoseUnitText, actionTitle: nil, cancelTitle: nil, actionHandler: {(lowMarkValue:String) in UserDefaults.standard.lowMarkValueInUserChosenUnitRounded = lowMarkValue}, cancelHandler: nil, inputValidator: nil)
             
         case .urgentLowMarkValue:
-            return SettingsSelectedRowAction.askText(title: Texts_SettingsView.labelUrgentLowValue, message: Texts_SettingsView.urgentLowValueMessage, keyboardType: UserDefaults.standard.bloodGlucoseUnitIsMgDl ? .numberPad:.decimalPad, text: UserDefaults.standard.urgentLowMarkValueInUserChosenUnitRounded, placeHolder: ConstantsBGGraphBuilder.defaultUrgentLowMarkInMgdl.mgDlToMmolAndToString(mgDl: UserDefaults.standard.bloodGlucoseUnitIsMgDl), fieldTitle: Texts_Common.enterValue, unitText: glucoseUnitText, actionTitle: nil, cancelTitle: nil, actionHandler: {(urgentLowMarkValue:String) in UserDefaults.standard.urgentLowMarkValueInUserChosenUnitRounded = urgentLowMarkValue}, cancelHandler: nil, inputValidator: nil)
+            return SettingsSelectedRowAction.askText(title: Texts_SettingsView.labelUrgentLowValue, message: Texts_SettingsView.urgentLowValueMessage, keyboardType: UserDefaults.standard.bloodGlucoseUnitIsMgDl ? .numberPad:.decimalPad, text: UserDefaults.standard.urgentLowMarkValueInUserChosenUnitRounded, placeHolder: ConstantsBGGraphBuilder.defaultUrgentLowMarkInMgdl.description, fieldTitle: Texts_Common.enterValue, unitText: glucoseUnitText, actionTitle: nil, cancelTitle: nil, actionHandler: {(urgentLowMarkValue:String) in UserDefaults.standard.urgentLowMarkValueInUserChosenUnitRounded = urgentLowMarkValue}, cancelHandler: nil, inputValidator: nil)
             
         case .allowScreenRotation:
             return SettingsSelectedRowAction.callFunction(function: {
@@ -374,26 +335,23 @@ class SettingsViewHomeScreenSettingsViewModel: NSObject, SettingsViewModelProtoc
         }
     }
     
-    func settingsSection(sectionID: Int) -> SettingsSection {
-        let icon: String?
-        switch rowGroup {
-        case .layout: icon = "rectangle.3.group"
-        case .mainChart: icon = "chart.xyaxis.line"
-        default: icon = nil
-        }
-        return SettingsSection(title: sectionTitle(), iconSymbolName: icon, footer: settingsSectionFooter(), rows: settingsRows(sectionID: sectionID))
-    }
-
     func sectionTitle() -> String? {
         switch rowGroup {
-        case .layout:
-            return Texts_SettingsView.homeScreenLayoutSectionTitle
         case .mainChart:
             return Texts_SettingsView.homeScreenChartDisplaySectionTitle
-        case .treatments, .screenLock, .screenLockLink:
+
+        case .miniChart:
             return nil
+
+        case .sensorLifetime:
+            return Texts_SettingsView.homeScreenSensorLifetimeSectionTitle
+
+        case .screenLock:
+            return Texts_SettingsView.homeScreenScreenLockSectionTitle
+
         case .glucoseRanges:
             return Texts_SettingsView.glucoseRangesSectionTitle
+
         case .all, .homeScreen:
             return Texts_SettingsView.sectionTitleHomeScreen
         }
@@ -401,17 +359,26 @@ class SettingsViewHomeScreenSettingsViewModel: NSObject, SettingsViewModelProtoc
 
     func settingsSectionFooter() -> String? {
         switch rowGroup {
-        case .layout:
+        case .mainChart:
+            return Texts_SettingsView.homeScreenMainChartSectionFooter
+
+        case .miniChart:
+            return nil
+
+        case .sensorLifetime:
             return Texts_SettingsView.homeScreenSensorLifetimeSectionFooter
+
         case .screenLock:
             return Texts_SettingsView.homeScreenScreenLockSectionFooter
+
         case .glucoseRanges:
             return Texts_SettingsView.glucoseRangesSectionFooter
-        default:
+
+        case .all, .homeScreen:
             return nil
         }
     }
-
+    
     func numberOfRows() -> Int {
         return Setting.allCases.count
     }

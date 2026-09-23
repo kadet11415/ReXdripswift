@@ -198,7 +198,6 @@ struct TreatmentsListView: View {
                             } label: {
                                 Label(Texts_Common.delete, systemImage: "trash")
                             }
-                            .tint(.red)
                         }
                 }
                 .listRowBackground(Color(.secondarySystemGroupedBackground))
@@ -249,7 +248,7 @@ private struct TreatmentsControlsCard: View {
                 }
             }
             .id(viewModel.datePickerReset)
-            .tint(ConstantsAppColors.navigationTint)
+            .tint(Color(.colorSecondary))
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
 
@@ -258,9 +257,9 @@ private struct TreatmentsControlsCard: View {
                 .padding(.horizontal, 16)
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: TreatmentFilterLayout.spacing) {
+                HStack(spacing: 10) {
                     TreatmentFilterChip(
-                        systemImage: GlucoseChartTreatmentStyle.bolusSymbol,
+                        systemImage: "arrowtriangle.down.fill",
                         tintColor: ConstantsGlucoseChart.bolusTreatmentColor,
                         isSelected: viewModel.showBolusTreatments
                     ) {
@@ -268,18 +267,18 @@ private struct TreatmentsControlsCard: View {
                     }
 
                     TreatmentFilterChip(
-                        systemImage: GlucoseChartTreatmentStyle.bolusSymbol,
+                        systemImage: "arrowtriangle.down.fill",
                         tintColor: ConstantsGlucoseChart.bolusTreatmentColor,
                         isSelected: viewModel.showSmallBolusTreatments,
                         isEnabled: viewModel.showBolusTreatments,
                         symbolScale: .medium,
-                        symbolFont: .system(size: TreatmentFilterLayout.symbolSize * GlucoseChartTreatmentStyle.smallBolusScale, weight: .regular)
+                        symbolFont: .system(size: 11, weight: .regular)
                     ) {
                         viewModel.toggleSmallBolusFilter()
                     }
 
                     TreatmentFilterChip(
-                        systemImage: GlucoseChartTreatmentStyle.carbsSymbol,
+                        systemImage: "circle.fill",
                         tintColor: ConstantsGlucoseChart.carbsTreatmentColor,
                         isSelected: viewModel.showCarbsTreatments
                     ) {
@@ -287,7 +286,7 @@ private struct TreatmentsControlsCard: View {
                     }
 
                     TreatmentFilterChip(
-                        systemImage: GlucoseChartTreatmentStyle.bgCheckSymbol,
+                        systemImage: "drop.fill",
                         tintColor: ConstantsGlucoseChart.bgCheckTreatmentColorInner,
                         isSelected: viewModel.showBgCheckTreatments
                     ) {
@@ -295,21 +294,12 @@ private struct TreatmentsControlsCard: View {
                     }
 
                     TreatmentFilterChip(
-                        systemImage: GlucoseChartTreatmentStyle.noteSymbol,
+                        systemImage: "note.text",
                         tintColor: ConstantsGlucoseChart.noteTreatmentColor,
                         isSelected: viewModel.showNoteTreatments
                     ) {
                         viewModel.toggleNoteFilter()
                     }
-
-                    TreatmentFilterChip(
-                        systemImage: TreatmentType.BasalInjection.iconSystemName,
-                        tintColor: ConstantsGlucoseChart.basalInjectionTreatmentColor,
-                        isSelected: viewModel.showBasalInjectionTreatments
-                    ) {
-                        viewModel.toggleBasalInjectionFilter()
-                    }
-                    .accessibilityLabel(Texts_TreatmentsView.basalInjection)
 
                     if viewModel.showBasalFilter {
                         TreatmentFilterChip(
@@ -346,31 +336,31 @@ private struct TreatmentRowView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            // Keep equal gaps around the symbol without hidden padding from a fixed time width.
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 Text(treatment.timeString)
                     .font(.body)
                     .foregroundStyle(treatment.primaryTextColor)
-                    .fixedSize(horizontal: true, vertical: false)
+                    .frame(minWidth: 58, alignment: .leading)
 
-                treatment.treatmentType.iconView(size: treatment.iconSize)
-                    .opacity(treatment.date > Date() ? 0.5 : 1)
+                Image(systemName: treatment.iconSystemName)
+                    .font(.system(size: treatment.iconSize, weight: .regular))
+                    .foregroundStyle(treatment.iconColor)
                     .frame(width: 16)
-
-                treatmentTitleView
-                    .lineLimit(treatment.treatmentType == .Note ? 2 : 1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .layoutPriority(1)
+
+            treatmentTitleView
+                .lineLimit(treatment.treatmentType == .Note ? 2 : 1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .layoutPriority(1)
 
             if let valueText = treatment.valueText, let unitText = treatment.unitText {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(valueText)
-                        .foregroundStyle(Color(.colorSecondary))
+                        .foregroundStyle(treatment.primaryTextColor)
 
                     Text(unitText)
-                        .foregroundStyle(Color(.colorTertiary))
+                        .foregroundStyle(treatment.secondaryTextColor)
                 }
                 .fixedSize(horizontal: true, vertical: false)
             }
@@ -398,15 +388,7 @@ private struct TreatmentRowView: View {
     }
 }
 
-/// Filter sizing for the horizontally scrolling treatment controls.
-private enum TreatmentFilterLayout {
-    static let diameter: CGFloat = 36
-    static let symbolSize: CGFloat = 16
-    static let spacing: CGFloat = 6
-    static let tapWidth: CGFloat = 40
-}
-
-/// Compact circular button used to enable or disable one treatment category.
+/// Compact native button used to enable or disable one treatment category.
 private struct TreatmentFilterChip: View {
     let systemImage: String
     let tintColor: Color
@@ -437,29 +419,28 @@ private struct TreatmentFilterChip: View {
     var body: some View {
         Button(action: action) {
             ZStack(alignment: .bottomTrailing) {
-                Image(systemName: displayAsSelected ? systemImage : systemImage.replacingOccurrences(of: ".fill", with: ""))
-                    .font(symbolFont ?? .system(size: TreatmentFilterLayout.symbolSize))
+                Image(systemName: systemImage)
+                    .font(symbolFont)
                     .imageScale(symbolScale)
-                    .frame(width: TreatmentFilterLayout.diameter, height: TreatmentFilterLayout.diameter)
+                    .frame(width: 20, height: 20)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
                     .background(chipBackgroundColor)
                     .foregroundStyle(chipForegroundColor)
-                    .clipShape(Circle())
+                    .clipShape(Capsule())
                     .overlay(
-                        Circle()
+                        Capsule()
                             .stroke(chipBorderColor.opacity(isEnabled || isSelected ? 1.0 : 0.6), lineWidth: 1)
                     )
 
                 if displayAsSelected {
                     Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
                         .symbolRenderingMode(.palette)
                         .foregroundStyle(.black, .green)
-                        .offset(x: 2, y: 2)
+                        .offset(x: 4, y: 4)
                 }
             }
-            // Keep extra tappable space around each circle.
-            .frame(width: TreatmentFilterLayout.tapWidth, height: 44)
-            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)

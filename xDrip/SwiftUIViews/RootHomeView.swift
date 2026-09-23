@@ -77,7 +77,6 @@ struct RootHomeView: View {
     @State private var chartYAxisResetRevision = 0
     @State private var showsExpandedIPadChart = false
     @AppStorage(UserDefaults.KeysCharts.chartWidthInHours.rawValue) private var chartWidthInHours = ConstantsGlucoseChart.defaultChartWidthInHours
-    @AppStorage("showTherapySummary") private var showTherapySummary = UserDefaults.standard.showTherapySummary
     @AppStorage(UserDefaults.Key.miniChartHoursToShow.rawValue) private var miniChartHoursToShow = ConstantsGlucoseChart.miniChartHoursToShow1
     @AppStorage(UserDefaults.Key.showTreatmentsOnChart.rawValue) private var hideTreatmentsOnChart = false
     @AppStorage(UserDefaults.Key.showOriginalBGReadings.rawValue) private var hideOriginalBGReadings = false
@@ -423,16 +422,14 @@ struct RootHomeView: View {
     /// The original iPhone hierarchy remains isolated here so the tablet composition cannot alter
     /// phone sizing, ordering, or gesture behaviour.
     private func phoneContent() -> some View {
-        // Resolve once so an asynchronous cache completion cannot disagree with row contents.
-        let loop = loopDisplayState
-        return VStack(spacing: Layout.sectionSpacing) {
+        VStack(spacing: Layout.sectionSpacing) {
             homeHeader
 
             VStack(spacing: Layout.rowSpacing) {
                 glucoseStatusRow
 
-                if showsTherapyRow(loop) {
-                    RootHomeLoopView(state: loop, actions: actions)
+                if state.visibility.showsLoop {
+                    RootHomeLoopView(state: loopDisplayState, actions: actions)
                 }
 
                 mainChart
@@ -453,7 +450,7 @@ struct RootHomeView: View {
     }
 
     /// The iPad Home screen is a vertical clinical dashboard in every orientation. Rotation only
-    /// changes section proportions. It never trades chart width for an independent status rail.
+    /// changes section proportions; it never trades chart width for an independent status rail.
     @ViewBuilder
     private func ipadContent(size: CGSize) -> some View {
         if size.width > size.height {
@@ -529,12 +526,9 @@ struct RootHomeView: View {
     }
 
     @ViewBuilder private func ipadGlanceBand(availableWidth: CGFloat) -> some View {
-        // Card height, visibility and contents must use the same resolved snapshot.
-        let loop = loopDisplayState
-        let cardHeight = ipadGlanceCardHeight(loop)
         if availableWidth < 720 || dynamicTypeSize.isAccessibilitySize {
             VStack(spacing: 12) {
-                ipadCurrentStatusCard(loop: loop)
+                ipadCurrentStatusCard()
 
                 if state.visibility.showsStatistics {
                     ipadStatisticsCard()
@@ -548,8 +542,7 @@ struct RootHomeView: View {
 
             HStack(alignment: .top, spacing: Layout.ipadGlanceCardSpacing) {
                 ipadCurrentStatusCard(
-                    loop: loop,
-                    height: cardHeight,
+                    height: ipadGlanceCardHeight,
                     horizontalPadding: currentStatusHorizontalPadding,
                     pumpGlucoseSpacing: ipadPumpGlucoseSpacing(
                         for: cardWidth,
@@ -559,17 +552,17 @@ struct RootHomeView: View {
                     .frame(width: cardWidth)
 
                 if state.visibility.showsStatistics {
-                    ipadStatisticsCard(height: cardHeight)
+                    ipadStatisticsCard(height: ipadGlanceCardHeight)
                         .frame(width: cardWidth)
                 }
             }
         }
     }
 
-    private func ipadGlanceCardHeight(_ loop: RootHomeLoopState) -> CGFloat {
+    private var ipadGlanceCardHeight: CGFloat {
         let currentStatusHeight = Layout.glucoseStatusRowHeight
             + (Layout.ipadGlanceCardVerticalPadding * 2)
-            + (showsTherapyRow(loop) ? Layout.ipadLoopRowSpacing + Layout.ipadLoopRowHeight : 0)
+            + (state.visibility.showsLoop ? Layout.ipadLoopRowSpacing + Layout.ipadLoopRowHeight : 0)
 
         guard state.visibility.showsStatistics else { return currentStatusHeight }
 
@@ -596,7 +589,7 @@ struct RootHomeView: View {
         for cardWidth: CGFloat,
         horizontalPadding: CGFloat
     ) -> CGFloat {
-        guard showsPumpPanel else { return 0 }
+        guard state.visibility.showsPump else { return 0 }
 
         let availableSpacing = cardWidth
             - (horizontalPadding * 2)
@@ -607,7 +600,6 @@ struct RootHomeView: View {
     }
 
     private func ipadCurrentStatusCard(
-        loop: RootHomeLoopState,
         height: CGFloat? = nil,
         horizontalPadding: CGFloat = Layout.ipadGlanceCardHorizontalPadding,
         pumpGlucoseSpacing: CGFloat = Layout.ipadPumpGlucoseSpacing
@@ -615,8 +607,8 @@ struct RootHomeView: View {
         VStack(spacing: Layout.ipadLoopRowSpacing) {
             glucoseStatusRow(spacing: pumpGlucoseSpacing)
 
-            if showsTherapyRow(loop) {
-                RootHomeLoopView(state: loop, actions: actions)
+            if state.visibility.showsLoop {
+                RootHomeLoopView(state: loopDisplayState, actions: actions)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -680,7 +672,7 @@ struct RootHomeView: View {
         height: CGFloat = Layout.glucoseStatusRowHeight
     ) -> some View {
         HStack(spacing: spacing) {
-            if showsPumpPanel {
+            if state.visibility.showsPump {
                 RootHomePumpView(state: pumpDisplayState)
                     .frame(maxHeight: .infinity)
             }
@@ -698,7 +690,7 @@ struct RootHomeView: View {
     private var mainChart: some View {
         configuredMainChart(
             chartState: visibleChartState,
-            showsTreatments: showTreatments
+            showsTreatments: true
         )
     }
 
@@ -718,7 +710,6 @@ struct RootHomeView: View {
         RootHomeMainChartView(
             selectedRange: $selectedRange,
             showsTreatments: showsTreatments,
-            allowsTherapyCharts: !state.isScreenLocked,
             chartState: chartState,
             isLoading: isLoadingChart,
             scrollCoordinator: scrollCoordinator,
@@ -808,8 +799,7 @@ struct RootHomeView: View {
         NavigationStack {
             IPadExpandedLandscapeChartView(
                 coreDataManager: coreDataManager,
-                nightscoutSyncManager: nightscoutSyncManager,
-                refreshRevision: state.chartRevision
+                nightscoutSyncManager: nightscoutSyncManager
             )
                 .navigationTitle(Texts_Common.statisticsAmbulatoryGlucoseProfile)
                 .navigationBarTitleDisplayMode(.inline)
@@ -936,14 +926,6 @@ struct RootHomeView: View {
         )
     }
 
-    private var showsPumpPanel: Bool {
-        showTreatments && showTherapySummary && state.visibility.showsPump
-    }
-
-    private func showsTherapyRow(_ loop: RootHomeLoopState) -> Bool {
-        showTreatments && showTherapySummary && !state.usesScreenLockNightLayout && (loop.showsIOB || loop.showsCOB || loop.showsAIDStatus)
-    }
-
     private var loopDisplayState: RootHomeLoopState {
         guard !scrollCoordinator.isShowingCurrentTimeRange else {
             return state.loop
@@ -958,9 +940,9 @@ struct RootHomeView: View {
                 iob: RootHomeMetricState(title: "IOB", value: "- U", valueColor: ConstantsAppColors.secondaryText),
                 cob: RootHomeMetricState(title: "COB", value: "- g", valueColor: ConstantsAppColors.secondaryText),
                 statusTitle: loopStatusState.title,
-                statusSymbol: loopStatusState.symbol,
+                statusSystemImage: loopStatusState.systemImage,
                 statusColor: ConstantsAppColors.secondaryText
-            ), at: referenceDate, external: nil)
+            ))
         }
 
         return historicalLoopState(
@@ -969,7 +951,7 @@ struct RootHomeView: View {
                 referenceDate: referenceDate,
                 usesRelativeStatusTime: false,
                 defaultTextColor: ConstantsAppColors.secondaryText
-            ), at: referenceDate, external: snapshot.aidStatus
+            )
         )
     }
 
@@ -980,10 +962,11 @@ struct RootHomeView: View {
         return pumpState
     }
 
-    private func historicalLoopState(_ loopState: RootHomeLoopState, at date: Date, external: AIDStatus?) -> RootHomeLoopState {
-        var result = stateModel.historicalLoopState(loopState, aidAnalyticsSource: UserDefaults.standard.dataFlowPolicy.aidAnalyticsSource)
-        stateModel.applyTherapyMetrics(to: &result, at: date, external: external, historical: true)
-        return result
+    private func historicalLoopState(_ loopState: RootHomeLoopState) -> RootHomeLoopState {
+        stateModel.historicalLoopState(
+            loopState,
+            aidAnalyticsSource: UserDefaults.standard.dataFlowPolicy.aidAnalyticsSource
+        )
     }
 
     private var miniChartState: GlucoseChartState {
@@ -1094,7 +1077,7 @@ struct RootHomeView: View {
 
     private var nightLockStatus: RootHomeLoopState? {
         guard state.usesScreenLockNightLayout,
-              state.loop.statusSymbol != nil || state.loop.showsActivityIndicator
+              state.loop.statusSystemImage != nil || state.loop.showsActivityIndicator
         else { return nil }
 
         return state.loop
@@ -1218,22 +1201,16 @@ struct RootHomeView: View {
 /// Owns the landscape analytics state for one expanded iPad chart presentation.
 private struct IPadExpandedLandscapeChartView: View {
     @StateObject private var stateModel: LandscapeChartStateModel
-    let refreshRevision: Int
 
-    init(coreDataManager: CoreDataManager, nightscoutSyncManager: NightscoutSyncManager, refreshRevision: Int) {
+    init(coreDataManager: CoreDataManager, nightscoutSyncManager: NightscoutSyncManager) {
         _stateModel = StateObject(wrappedValue: LandscapeChartStateModel(
             coreDataManager: coreDataManager,
             nightscoutSyncManager: nightscoutSyncManager
         ))
-        self.refreshRevision = refreshRevision
     }
 
     var body: some View {
         LandscapeChartView(stateModel: stateModel, presentation: .expandedIPad)
-            .onChange(of: refreshRevision) { _ in
-                // Keep an expanded iPad chart open safely while new glucose is being persisted.
-                stateModel.refresh()
-            }
     }
 }
 

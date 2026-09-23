@@ -12,7 +12,6 @@ public class DexcomG7: NSManagedObject {
         super.init(entity: entity, insertInto: nsManagedObjectContext)
         
         blePeripheral = BLEPeripheral(address: address, name: name, alias: nil, bluetoothPeripheralType: .DexcomG7Type, nsManagedObjectContext: nsManagedObjectContext)
-        useOtherApp = true
         
     }
     

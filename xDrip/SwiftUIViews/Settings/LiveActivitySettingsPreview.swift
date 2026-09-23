@@ -10,7 +10,6 @@ import SwiftUI
 
 /// Shows the selected Live Activity layout with current data or representative fallback data.
 struct LiveActivitySettingsPreview: View {
-    @AppStorage(UserDefaults.Key.liveActivityShowIOBCOB.rawValue) private var showIOBCOB = true
     @ObservedObject private var liveActivityManager = LiveActivityManager.shared
     @AppStorage(UserDefaults.Key.liveActivityType.rawValue)
     private var liveActivityTypeRawValue = LiveActivityType.disabled.rawValue
@@ -27,13 +26,11 @@ struct LiveActivitySettingsPreview: View {
             isMgDl: isMgDl
         )
         state.liveActivityType = liveActivityType
-        state.showIOBCOB = showIOBCOB
         state.warnUserToOpenApp = false
         return state
     }
 
     private var liveActivityPreviewHeight: CGFloat {
-        if previewState.showsSensorWarmupStatus { return 84 }
         switch liveActivityType {
         case .minimal:
             return 84
@@ -63,7 +60,6 @@ struct LiveActivitySettingsPreview: View {
 /// Shows the selected CarPlay layout for the small supplemental Live Activity family.
 /// Apple Watch also uses this family.
 struct CarPlayLiveActivitySettingsPreview: View {
-    @AppStorage(UserDefaults.Key.liveActivityShowIOBCOB.rawValue) private var showIOBCOB = true
     @ObservedObject private var liveActivityManager = LiveActivityManager.shared
     @AppStorage(UserDefaults.Key.liveActivityType.rawValue)
     private var liveActivityTypeRawValue = LiveActivityType.disabled.rawValue
@@ -86,7 +82,6 @@ struct CarPlayLiveActivitySettingsPreview: View {
             isMgDl: isMgDl
         )
         state.carPlayLiveActivityType = carPlayLiveActivityType
-        state.showIOBCOB = showIOBCOB
         state.warnUserToOpenApp = false
         return state
     }

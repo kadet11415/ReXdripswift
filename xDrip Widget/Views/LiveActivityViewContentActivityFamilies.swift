@@ -39,19 +39,11 @@ struct LiveActivityViewContentActivityFamiliesState: View {
             RoundedRectangle(cornerRadius: 8)
                 .fill(Color.black.opacity(0.4))
 
-            if state.showsSensorWarmupStatus, let endDate = state.sensorWarmupEndDate {
-                GeometryReader { geometry in
-                    LiveActivitySensorWarmupView(endDate: endDate, waitingForReading: state.isWaitingForSensorReading, compactWidth: geometry.size.width)
-                        .padding(.vertical, 10)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            } else {
-                switch carPlayLiveActivityType {
-                case .chart:
-                    chartContent
-                case .basic:
-                    basicContent
-                }
+            switch carPlayLiveActivityType {
+            case .chart:
+                chartContent
+            case .basic:
+                basicContent
             }
         }
         .activityBackgroundTint(.clear)
@@ -75,10 +67,10 @@ struct LiveActivityViewContentActivityFamiliesState: View {
                 Spacer(minLength: 6)
 
                 Group {
-                    if state.aidStatus != nil || state.showsTherapyMetrics {
+                    if let aidStatus = state.aidStatus {
                         HStack(alignment: .center, spacing: 8) {
-                            if state.showsTherapyMetrics {
-                                aidMetrics()
+                            if aidStatus.iob != nil || aidStatus.cob != nil {
+                                aidMetrics(iob: aidStatus.iob, cob: aidStatus.cob)
                             }
 
                             deviceStatusIcon
@@ -144,56 +136,50 @@ struct LiveActivityViewContentActivityFamiliesState: View {
     }
 
     @ViewBuilder
-    // CarPlay and Smart Stack share this view. Keep the symbol at 15 pt while the shared renderer
-    // supplies black weight for circle-based symbols and retains bold for the other AID symbols.
     private var deviceStatusIcon: some View {
         if let deviceStatusIconImage = state.deviceStatusIconImage(), let deviceStatusColor = state.deviceStatusColor() {
             deviceStatusIconImage
-                .font(.system(size: 15, weight: .bold))
+                .font(.headline.bold())
                 .foregroundStyle(deviceStatusColor)
         }
     }
 
-    private func aidMetrics() -> some View {
+    private func aidMetrics(iob: Double?, cob: Double?) -> some View {
         // Keep both metrics at the same size while adapting to the limited CarPlay width.
         ViewThatFits(in: .horizontal) {
-            aidMetricsRow(font: .system(size: 15))
-            aidMetricsRow(font: .system(size: 14))
-            aidMetricsRow(font: .footnote)
-            aidMetricsRow(font: .system(size: 12))
-            aidMetricsRow(font: .system(size: 11))
-            aidMetricsRow(font: .system(size: 10))
-            aidMetricsRow(font: .system(size: 9))
+            aidMetricsRow(iob: iob, cob: cob, font: .footnote)
+            aidMetricsRow(iob: iob, cob: cob, font: .system(size: 12))
+            aidMetricsRow(iob: iob, cob: cob, font: .system(size: 11))
+            aidMetricsRow(iob: iob, cob: cob, font: .system(size: 10))
+            aidMetricsRow(iob: iob, cob: cob, font: .system(size: 9))
         }
     }
 
-    private func aidMetricsRow(font: Font) -> some View {
-        TimelineView(.periodic(from: .now, by: 60)) { context in
-            let metrics = state.resolvedTherapyMetrics
-            HStack(alignment: .center, spacing: 12) {
-                if metrics.iob.isVisible(at: context.date) {
-                    let iobValue = metrics.iob.value(at: context.date)?.formatted(.number.precision(.fractionLength(1))) ?? "-"
-                    aidMetric(value: iobValue, unit: "U", font: font)
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel(metrics.iob.accessibilityName(isIOB: true))
-                        .accessibilityValue("\(iobValue) U")
-                }
-                if metrics.cob.isVisible(at: context.date) {
-                    aidMetric(value: metrics.cob.number(isIOB: false, at: context.date), unit: "g", font: font)
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel(metrics.cob.accessibilityName(isIOB: false))
-                        .accessibilityValue(metrics.cob.formatted(isIOB: false, at: context.date))
-                }
+    private func aidMetricsRow(iob: Double?, cob: Double?, font: Font) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            if let iob {
+                aidMetric(
+                    value: iob.formatted(.number.precision(.fractionLength(1))),
+                    unit: "U",
+                    font: font
+                )
             }
-            .fixedSize(horizontal: true, vertical: false)
-            .lineLimit(1)
+
+            if let cob {
+                aidMetric(
+                    value: cob.formatted(.number.precision(.fractionLength(0))),
+                    unit: "g",
+                    font: font
+                )
+            }
         }
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private func aidMetric(value: String, unit: String, font: Font) -> some View {
-        HStack(alignment: .center, spacing: 1) {
+        HStack(alignment: .firstTextBaseline, spacing: 2) {
             Text(value)
-                .fontWeight(.regular)
+                .fontWeight(.bold)
 
             Text(unit)
         }
