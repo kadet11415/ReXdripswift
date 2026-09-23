@@ -3,6 +3,11 @@ import Foundation
 // all common texts 
 class Texts_Common {
     static private let filename = "Common"
+
+    static let sensorWarmupComplete = NSLocalizedString("common_sensorWarmupComplete", tableName: filename, bundle: .main, value: "Warm-up complete", comment: "Estimated warm-up time has elapsed")
+    static let sensorWaitingForReading = NSLocalizedString("common_sensorWaitingForReading", tableName: filename, bundle: .main, value: "Waiting for first reading…", comment: "Waiting for the next sensor report after estimated warm-up")
+    static let sensorWarmingUp = NSLocalizedString("common_sensorWarmingUp", tableName: filename, bundle: .main, value: "Sensor warming up", comment: "Live Activity sensor warm-up title")
+    static let sensorWarmupUntilFormat = NSLocalizedString("common_sensorWarmupUntilFormat", tableName: filename, bundle: .main, value: "Until %@", comment: "Warm-up completion time; %@ is a localized time")
     
     static let Ok = {
         return NSLocalizedString("common_Ok", tableName: filename, bundle: Bundle.main, value: "OK", comment: "literally 'OK'")
@@ -12,6 +17,12 @@ class Texts_Common {
     static let Cancel = {
         return NSLocalizedString("common_cancel", tableName: filename, bundle: Bundle.main, value: "Cancel", comment: "literally 'Cancel'")
     }()
+
+    // Actions used when leaving an editor with changes that have not been saved.
+    static let unsavedChanges = NSLocalizedString("common_unsavedChanges", tableName: filename, bundle: .main, value: "Unsaved Changes", comment: "title when leaving an editor with unsaved changes")
+    static let save = NSLocalizedString("common_save", tableName: filename, bundle: .main, value: "Save", comment: "save editor changes")
+    static let discardChanges = NSLocalizedString("common_discardChanges", tableName: filename, bundle: .main, value: "Discard Changes", comment: "leave the editor without saving changes")
+    static let back = NSLocalizedString("common_back", tableName: filename, bundle: .main, value: "Back", comment: "accessibility label for the navigation back button")
 
     static let dismiss = {
         return NSLocalizedString(
@@ -95,13 +106,17 @@ class Texts_Common {
         return NSLocalizedString("common_days", tableName: filename, bundle: Bundle.main, value: "days", comment: "literal translation needed")
     }()
 
-    static let landscapeComparingWithLast = {
-        return NSLocalizedString("common_landscape_comparingWithLast", tableName: filename, bundle: Bundle.main, value: "Comparing with the last:", comment: "label before a selectable number of days used for the landscape AGP comparison")
+    static let landscapeShowAGPChartData = {
+        return NSLocalizedString("common_landscape_showAGPChartData", tableName: filename, bundle: Bundle.main, value: "Show AGP chart data:", comment: "Label before the history period picker, which controls only AGP chart data")
     }()
 
     static func landscapeComparisonDays(_ days: Int) -> String {
         return String(format: NSLocalizedString("common_landscape_comparisonDays", tableName: filename, bundle: Bundle.main, value: "%d days", comment: "number of days in the landscape AGP comparison picker"), days)
     }
+
+    static let landscapeComparisonNone = {
+        return NSLocalizedString("common_landscape_comparisonNone", tableName: filename, bundle: Bundle.main, value: "None", comment: "option that disables the AGP baseline in the landscape comparison picker")
+    }()
     
     static let today = {
         return NSLocalizedString("common_today", tableName: filename, bundle: Bundle.main, value: "Today", comment: "the word today")
@@ -232,10 +247,6 @@ class Texts_Common {
         return NSLocalizedString("common_statistics_average", tableName: filename, bundle: Bundle.main, value: "Average", comment: "the word average")
     }()
     
-    static let a1cStatistics = {
-        return NSLocalizedString("common_statistics_a1c", tableName: filename, bundle: Bundle.main, value: "HbA1c", comment: "phrase HbA1c")
-    }()
-    
     static let cvStatistics = {
         return NSLocalizedString("common_statistics_cv", tableName: filename, bundle: Bundle.main, value: "CV", comment: "coefficient of variation")
     }()
@@ -316,8 +327,16 @@ class Texts_Common {
         return NSLocalizedString("common_statistics_insufficientData", tableName: filename, bundle: Bundle.main, value: "Insufficient data", comment: "statistics chart empty message")
     }()
 
-    static let statisticsEstimatedA1cTrend = {
-        return NSLocalizedString("common_statistics_estimatedA1cTrend", tableName: filename, bundle: Bundle.main, value: "Estimated HbA1c trend", comment: "statistics estimated HbA1c trend chart title")
+    static let statisticsGMITrend = {
+        return NSLocalizedString("common_statistics_gmiTrend", tableName: filename, bundle: Bundle.main, value: "GMI trend", comment: "statistics GMI trend chart title")
+    }()
+
+    static let statisticsThreeDay = {
+        return NSLocalizedString("common_statistics_threeDay", tableName: filename, bundle: Bundle.main, value: "3-day", comment: "three-day GMI trend interval")
+    }()
+
+    static let statisticsWeekly = {
+        return NSLocalizedString("common_statistics_weekly", tableName: filename, bundle: Bundle.main, value: "Weekly", comment: "weekly GMI trend interval")
     }()
 
     static let statisticsCVTrend = {
@@ -332,9 +351,11 @@ class Texts_Common {
         return NSLocalizedString("common_statistics_averageFormat", tableName: filename, bundle: Bundle.main, value: "Average %@", comment: "statistics average value format")
     }()
 
-    static let statisticsDailyPatternFooter = {
-        return NSLocalizedString("common_statistics_dailyPatternFooter", tableName: filename, bundle: Bundle.main, value: "Bars show daily percentage in 70-180 mg/dL range. The dashed line marks the 70% clinical target.", comment: "statistics daily pattern chart footer")
-    }()
+    /// The caller supplies the clinical range in the report's selected units.
+    static func statisticsDailyPatternFooter(range: String) -> String {
+        let format = NSLocalizedString("common_statistics_dailyPatternFooter", tableName: filename, bundle: Bundle.main, value: "Bars show daily percentage in %@ range. The dashed line marks the 70%% clinical target.", comment: "statistics daily pattern chart footer; %@ is the glucose range with units")
+        return String(format: format, range)
+    }
 
     static let statisticsAverageTDD = {
         return NSLocalizedString("common_statistics_averageTDD", tableName: filename, bundle: Bundle.main, value: "Average TDD", comment: "statistics AID average total daily dose title")
