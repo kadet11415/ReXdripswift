@@ -49,7 +49,7 @@ public enum AidexUUID {
 
     public static let serviceDIS = "0000180A-0000-1000-8000-00805F9B34FB"
     public static let manufacturerID: UInt16 = 0x0059
-    public static let knownNamePrefixes = ["AiDex", "AiDEX", "AIDEX", "Linx", "LINX", "CGM"]
+    public static let knownNamePrefixes = ["AiDex", "AiDEX", "AIDEX", "Linx", "LINX", "Lumi", "CGM"]
 }
 
 /// Scaling factor для F003 opcode.

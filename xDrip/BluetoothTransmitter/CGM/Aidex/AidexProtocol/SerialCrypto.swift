@@ -27,7 +27,7 @@ enum SerialCrypto {
     /// Извлечение bare serial из имени устройства.
     /// "AiDEX X-2222267V4E" → "2222267V4E"
     static func stripPrefix(_ serial: String) -> String {
-        let prefixes = ["AiDEX X-", "AIDEX X-", "AiDex X-", "Linx X-", "Lumiflex X-", "X-"]
+        let prefixes = ["AiDEX X-", "AIDEX X-", "AiDex X-", "Linx X-", "Lumiflex X-", "AiDEX F-", "AIDEX F-", "AiDex F-", "Linx F-", "Lumiflex F-", "Lumi-", "LUMI-", "X-", "F-"]
         for prefix in prefixes {
             if serial.hasPrefix(prefix) {
                 return String(serial.dropFirst(prefix.count))
