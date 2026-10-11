@@ -1,11 +1,12 @@
+
 //
 //  Version.xcconfig
 //  xDrip4iO5
 //
 
 // Version [DEFAULT]
-XDRIP_MARKETING_VERSION = 7.1.1
-CURRENT_PROJECT_VERSION = 4233.RC0
+XDRIP_MARKETING_VERSION = 5.7.0 //7.1.1
+CURRENT_PROJECT_VERSION = 4233.1 //aidex+lumi+7.1.1+TF-RC0
 
 // Optional override
 #include? "VersionOverride.xcconfig"
