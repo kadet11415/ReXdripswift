@@ -67,6 +67,7 @@
         <attribute name="shouldconnect" attributeType="Boolean" usesScalarValueType="YES"/>
         <attribute name="transmitterId" optional="YES" attributeType="String"/>
         <attribute name="webOOPEnabled" attributeType="Boolean" usesScalarValueType="YES"/>
+        <relationship name="aidex" optional="YES" maxCount="1" deletionRule="Cascade" destinationEntity="Aidex" inverseName="blePeripheral" inverseEntity="Aidex"/>
         <relationship name="batteryHistorySamples" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="BatteryHistorySample" inverseName="blePeripheral" inverseEntity="BatteryHistorySample"/>
         <relationship name="bubble" optional="YES" maxCount="1" deletionRule="Cascade" destinationEntity="Bubble" inverseName="blePeripheral" inverseEntity="Bubble"/>
         <relationship name="dexcomG5" optional="YES" maxCount="1" deletionRule="Cascade" destinationEntity="DexcomG5" inverseName="blePeripheral" inverseEntity="DexcomG5"/>
@@ -79,6 +80,10 @@
         <relationship name="miaoMiao" optional="YES" maxCount="1" deletionRule="Cascade" destinationEntity="MiaoMiao" inverseName="blePeripheral" inverseEntity="MiaoMiao"/>
         <relationship name="omniPodHeartBeat" optional="YES" maxCount="1" deletionRule="Cascade" destinationEntity="OmniPodHeartBeat" inverseName="blePeripheral" inverseEntity="OmniPodHeartBeat"/>
     </entity>
+    <entity name="Aidex" representedClassName=".Aidex" syncable="YES">
+        <relationship name="blePeripheral" optional="YES" maxCount="1" deletionRule="Cascade" destinationEntity="BLEPeripheral" inverseName="aidex" inverseEntity="BLEPeripheral"/>
+    </entity>
+
     <entity name="BatteryHistorySample" representedClassName=".BatteryHistorySample" syncable="YES">
         <attribute name="batteryStatusRaw" optional="YES" attributeType="Integer 16"/>
         <attribute name="dexcomFamilyRaw" optional="YES" attributeType="Integer 16"/>
