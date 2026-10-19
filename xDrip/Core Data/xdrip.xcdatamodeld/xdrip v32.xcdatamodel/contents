@@ -81,6 +81,9 @@
         <relationship name="omniPodHeartBeat" optional="YES" maxCount="1" deletionRule="Cascade" destinationEntity="OmniPodHeartBeat" inverseName="blePeripheral" inverseEntity="OmniPodHeartBeat"/>
     </entity>
     <entity name="Aidex" representedClassName=".Aidex" syncable="YES">
+        <attribute name="firmwareVersion" optional="YES" attributeType="String"/>
+        <attribute name="modelName" optional="YES" attributeType="String"/>
+        <attribute name="peripheralIdentifier" optional="YES" attributeType="String"/>
         <relationship name="blePeripheral" optional="YES" maxCount="1" deletionRule="Cascade" destinationEntity="BLEPeripheral" inverseName="aidex" inverseEntity="BLEPeripheral"/>
     </entity>
 
