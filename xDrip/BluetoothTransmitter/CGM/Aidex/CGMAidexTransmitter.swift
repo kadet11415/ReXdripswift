@@ -568,6 +568,7 @@ extension CGMAidexTransmitter: AidexDriverDelegate {
     }
 
     func aidex(_ sensor: AidexSensor, didReceive glucose: AidexGlucosePoint) {
+        trace("CGMAidex: glucose accepted by driver callback value=%.1f mg/dL timestamp=%{public}.3f", log: log, category: ConstantsLog.categoryAidex, type: .info, glucose.glucoseMgDl, glucose.timestamp.timeIntervalSince1970)
         trace("CGMAidex: didReceive glucose=%.1f mg/dL sensorAge=%.0fh startTimeMs=%{public}lld", log: log, category: ConstantsLog.categoryAidex, type: .info, glucose.glucoseMgDl, sensorAge / 3600, sensorStartTimeMs)
 
         // Flush any pending calibration now that we have a valid offset

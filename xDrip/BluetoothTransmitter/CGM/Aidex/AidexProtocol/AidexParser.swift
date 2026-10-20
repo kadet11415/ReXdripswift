@@ -195,11 +195,15 @@ enum AidexParser {
         let end = payloadEndExclusive ?? frame.count
         guard end > 1, end <= frame.count else { return nil }
 
-        if let parsed = parseStartupDeviceInfoPayload(frame.subdata(in: 1..<end)) {
-            return parsed
-        }
-        guard end > 2 else { return nil }
-        return parseStartupDeviceInfoPayload(frame.subdata(in: 2..<end))
+        // F002 responses are opcode + payload + little-endian CRC. Validate the
+        // complete response before excluding framing bytes from metadata parsing.
+        let response = frame.prefix(end)
+        guard end >= 3, CRC16.validateResponse(Data(response)) else { return nil }
+        let payloadEnd = end - 2
+        let payloadStart = frame[0] == AidexOpcode.getStartupDeviceInfo.rawValue ? 1 : 0
+        guard payloadEnd > payloadStart else { return nil }
+        let payload = frame.subdata(in: payloadStart..<payloadEnd)
+        return parseStartupDeviceInfoPayload(payload)
     }
 
     // MARK: - Session Start Time

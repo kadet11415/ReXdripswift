@@ -987,9 +987,17 @@ class BluetoothTransmitter: NSObject, CBCentralManagerDelegate, CBPeripheralDele
             requestSignalStrengthForTraceIfNeeded(from: peripheral)
         }
         
-        // trace the received value
+        // trace the received value, excluding protected Aidex protocol characteristics
+        // which may contain pairing keys, bond material, or decrypted glucose data.
         if let value = characteristic.value {
-            trace("in didUpdateValueFor, data = %{public}@", log: log, category: ConstantsLog.categoryBlueToothTransmitter, type: .debug, value.hexEncodedString())
+            let isAidexSensitive = [
+                "F001", "F002", "F003"
+            ].contains(characteristic.uuid.uuidString.suffix(4).uppercased())
+            if isAidexSensitive {
+                trace("in didUpdateValueFor, received protected characteristic %{public}@, bytes=%{public}d", log: log, category: ConstantsLog.categoryBlueToothTransmitter, type: .debug, characteristic.uuid.uuidString, value.count)
+            } else {
+                trace("in didUpdateValueFor, data = %{public}@", log: log, category: ConstantsLog.categoryBlueToothTransmitter, type: .debug, value.hexEncodedString())
+            }
         }
         
         timeStampLastStatusUpdate = Date()
@@ -1037,7 +1045,7 @@ class BluetoothTransmitter: NSObject, CBCentralManagerDelegate, CBPeripheralDele
         }
     }
     
-    // MARK: - helpers
+    // MARK: - helpers/
     
     /// to ask transmitter that it initiates pairing
     ///

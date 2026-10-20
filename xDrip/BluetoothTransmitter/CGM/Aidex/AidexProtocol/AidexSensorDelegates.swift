@@ -89,6 +89,11 @@ extension AidexSensor: CBCentralManagerDelegate {
     }
 
     public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        guard peripheral === self.peripheral else {
+            print("[AidexSensor] didConnect: ignoring stale peripheral \(peripheral.identifier)")
+            central.cancelPeripheralConnection(peripheral)
+            return
+        }
         print("[Aidex-DEBUG] ═══ DID_CONNECT: \(peripheral.name ?? "unnamed") id=\(peripheral.identifier.uuidString.prefix(8))...")
         print("[Aidex-DEBUG]   pendingResetReconnect=\(pendingResetReconnect) needsPostResetActivation=\(needsPostResetActivation) postResetRescanActive=\(postResetRescanActive)")
         peripheral.delegate = self
@@ -281,43 +286,49 @@ extension AidexSensor: CBPeripheralDelegate {
         if let err = error as NSError? {
             let cbError = CBATTError.Code(rawValue: err.code)
             print("[AidexSensor] didUpdateNotificationStateFor \(charName) ERROR=\(err.code) \(err.localizedDescription)")
-            if cbError == .insufficientAuthentication || err.code == CBATTError.Code.insufficientAuthentication.rawValue {
-                // F001 (auth char) hit security wall before bonding — request pairing.
+            let requiresBond = cbError == .insufficientAuthentication
+                || cbError == .insufficientEncryption
+            if requiresBond {
                 if characteristic.uuid == CBUUID(string: AidexUUID.charF001) {
                     keyExchangePendingBond = true
                     DispatchQueue.main.async { [weak self] in
                         guard let self else { return }
                         self.delegate?.aidexNeedsPairing(self)
                     }
-                }
-                // Do NOT advance the CCCD chain on error for F001 — the auth gate
-                // must succeed before key exchange. Just retry after a short settle.
-                if characteristic.uuid == CBUUID(string: AidexUUID.charF001) {
+
                     bleQueue.asyncAfter(deadline: .now() + .milliseconds(Int(AidexTimeout.bondingSettle))) { [weak self] in
-                        guard let self else { return }
-                        // Re-attempt notify; once bonded this will succeed.
+                        guard let self,
+                              self.peripheral === peripheral,
+                              peripheral.state == .connected,
+                              self.centralManager.state == .poweredOn,
+                              self.cccdIndex < self.pendingCCCD.count,
+                              self.pendingCCCD[self.cccdIndex] == characteristic
+                        else { return }
                         self.peripheral?.setNotifyValue(true, for: characteristic)
                     }
                     return
                 }
-                // For non-auth characteristics, fall through to normal advancement.
-            } else {
-                // A CCCD write to F003/F002 failed with a non-auth error — most
-                // commonly during the post-bond re-registration, where iOS briefly
-                // rejects the notify subscribe while the security level transitions.
-                // Falling through here would silently drop the subscription and leave
-                // the streaming path dead (the exact "no glucose data" bug). Re-issue
-                // setNotifyValue once the link settles, and keep the retry budget
-                // driven by startCCCDChain's timeout instead of advancing blindly.
-                if characteristic.uuid == CBUUID(string: AidexUUID.charF003)
-                    || characteristic.uuid == CBUUID(string: AidexUUID.charF002) {
-                    bleQueue.asyncAfter(deadline: .now() + .milliseconds(Int(AidexTimeout.bondingSettle))) { [weak self] in
-                        guard let self else { return }
-                        self.peripheral?.setNotifyValue(true, for: characteristic)
-                    }
-                    return
-                }
+                // For non-auth characteristics, let the timeout retry the subscription.
+                return
             }
+
+            // A CCCD write to F003/F002 failed with a non-auth error — most
+            // commonly during post-bond re-registration. Retry only while this
+            // connection and CCCD request are still current.
+            if characteristic.uuid == CBUUID(string: AidexUUID.charF003)
+                || characteristic.uuid == CBUUID(string: AidexUUID.charF002) {
+                bleQueue.asyncAfter(deadline: .now() + .milliseconds(Int(AidexTimeout.bondingSettle))) { [weak self] in
+                    guard let self,
+                          self.peripheral === peripheral,
+                          peripheral.state == .connected,
+                          self.cccdIndex < self.pendingCCCD.count,
+                          self.pendingCCCD[self.cccdIndex] == characteristic
+                    else { return }
+                    self.peripheral?.setNotifyValue(true, for: characteristic)
+                }
+                return
+            }
+            return
         }
 
         let expected = cccdIndex < pendingCCCD.count ? pendingCCCD[cccdIndex].uuid.uuidString : "none"
@@ -334,7 +345,15 @@ extension AidexSensor: CBPeripheralDelegate {
     public func peripheral(_ peripheral: CBPeripheral,
                             didUpdateValueFor characteristic: CBCharacteristic,
                             error: Error?) {
-        guard error == nil, let data = characteristic.value else { return }
+        let charName = characteristic.uuid.uuidString
+        let dataLength = characteristic.value?.count ?? 0
+        let callbackError = error.map { String(describing: $0) } ?? "none"
+        print("[Aidex-DEBUG] RX callback char=\(charName) bytes=\(dataLength) error=\(callbackError) state=\(peripheral.state.rawValue) phase=\(connectionPhase)")
+        guard error == nil, let data = characteristic.value else {
+            let reason = error == nil ? "missing-value" : "callback-error"
+            print("[Aidex-DEBUG] RX dropped char=\(charName) reason=\(reason)")
+            return
+        }
 
         switch characteristic.uuid {
         case CBUUID(string: AidexUUID.charF003):
@@ -381,16 +400,13 @@ extension AidexSensor: CBPeripheralDelegate {
             peripheral.readValue(for: f2)
 
         case CBUUID(string: AidexUUID.charSessionStart):
-            let hex = data.map { String(format: "%02X", $0) }.joined(separator: " ")
-            let isZ = data.allSatisfy { $0 == 0x00 }
-            print("[Aidex-DEBUG] ═══ 0x2AAA READ: \(hex) len=\(data.count) isAllZeros=\(isZ)")
-            if !isZ, let st = AidexParser.parseLocalStartTimePayload(data) {
-                let m = st.toEpochMs() ?? 0
-                print("[Aidex-DEBUG]   parsed epochMs=\(m) date=\(Date(timeIntervalSince1970: Double(m)/1000))")
+            let isAllZeros = data.allSatisfy { $0 == 0x00 }
+            guard let st = AidexParser.parseLocalStartTimePayload(data) else {
+                print("[Aidex-DEBUG] 0x2AAA startup time parse failed bytes=\(data.count) allZeros=\(isAllZeros)")
+                break
             }
-            if let st = AidexParser.parseLocalStartTimePayload(data) {
-                applySessionStartTime(st, source: "0x2AAA")
-            }
+            print("[Aidex-DEBUG] 0x2AAA startup time parsed bytes=\(data.count) allZeros=\(st.isAllZeros)")
+            applySessionStartTime(st, source: "0x2AAA")
 
         case CBUUID(string: AidexUUID.charModelNumber):
             if let s = String(data: data, encoding: .utf8)?

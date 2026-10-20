@@ -237,6 +237,8 @@ public final class AidexSensor: NSObject, ObservableObject {
     var hasAuthoritativeSessionStart = false
     var streamingStartedAt: Date?
     var startupControlStage = StartupControlStage.idle
+    var legacyStartTimeRequested = false
+    var legacyStartTimeWatchdog: DispatchWorkItem?
 
     // Scan-only mode state
     var discoveredSensors: [UUID: DiscoveredAidexSensor] = [:]
@@ -521,6 +523,9 @@ public final class AidexSensor: NSObject, ObservableObject {
         keyExchangeWatchdog?.cancel()
         historyPageWatchdog?.cancel()
         initialHistoryRequestWork?.cancel()
+        legacyStartTimeWatchdog?.cancel()
+        legacyStartTimeWatchdog = nil
+        legacyStartTimeRequested = false
     }
 
     // MARK: - Service Discovery
@@ -758,33 +763,57 @@ public final class AidexSensor: NSObject, ObservableObject {
     // MARK: - F003 Handling
 
     func handleF003(data encrypted: Data) {
-        guard let decrypted = keyExchange.decrypt(encrypted) else { return }
+        print("[Aidex-DEBUG] F003 RX encryptedBytes=\(encrypted.count) keyReady=\(keyExchange.isComplete) notifying=\(f003?.isNotifying ?? false)")
+        guard let decrypted = keyExchange.decrypt(encrypted) else {
+            print("[Aidex-DEBUG] F003 decrypt failed encryptedBytes=\(encrypted.count)")
+            return
+        }
 
-        switch AidexParser.classifyFrame(decrypted) {
+        let frameType = AidexParser.classifyFrame(decrypted)
+        let opcode = decrypted.first.map { String(format: "0x%02X", $0) } ?? "none"
+        print("[Aidex-DEBUG] F003 decrypt ok plaintextBytes=\(decrypted.count) frameType=\(String(describing: frameType)) opcode=\(opcode)")
+        switch frameType {
         case .data:
             handleDataFrame(decrypted)
         case .status:
             handleStatusFrame(decrypted)
         case .calibration:
             if decrypted.first == 0x0A {
+                print("[Aidex-DEBUG] F003 calibration result=accepted")
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
                     self.delegate?.aidex(self, didReceiveCalibrationResult: true, message: "Calibration accepted")
                 }
+            } else {
+                let opcode = decrypted.first.map { String(format: "0x%02X", $0) } ?? "none"
+                print("[Aidex-DEBUG] F003 calibration frame opcode=\(opcode)")
             }
         case .unknown:
-            break
+            print("[Aidex-DEBUG] F003 unknown frame bytes=\(decrypted.count)")
         }
     }
 
     func handleDataFrame(_ decrypted: Data) {
-        guard AidexParser.validateFrameCRC(decrypted),
-              let frame = AidexParser.parseDataFrame(decrypted) else { return }
+        let crcValid = AidexParser.validateFrameCRC(decrypted)
+        guard crcValid else {
+            print("[Aidex-DEBUG] F003 data rejected reason=crc-failed bytes=\(decrypted.count)")
+            return
+        }
+        guard let frame = AidexParser.parseDataFrame(decrypted) else {
+            print("[Aidex-DEBUG] F003 data rejected reason=parse-failed bytes=\(decrypted.count)")
+            return
+        }
+        let frameOpcode = String(format: "0x%02X", frame.opcode)
+        print("[Aidex-DEBUG] F003 data frame parsed opcode=\(frameOpcode) offsetMin=\(frame.timeOffsetMinutes) glucoseValid=\(frame.isValid)")
 
         let now = Date()
         lastF003Time = now
 
-        guard frame.isValid else { return }
+        guard frame.isValid else {
+            let reason = frame.rawGlucosePacked == AidexFrame.sentinelGlucose ? "sentinel" : "glucose-out-of-range"
+            print("[Aidex-DEBUG] F003 data rejected reason=\(reason) packed=\(frame.rawGlucosePacked)")
+            return
+        }
 
         let offset = frame.timeOffsetMinutes
         lastOffsetMinutes = offset
@@ -818,6 +847,7 @@ public final class AidexSensor: NSObject, ObservableObject {
             startHistoryAfterFirstLiveReading()
         }
 
+        print("[Aidex-DEBUG] F003 glucose delegate dispatch offsetMin=\(offset) timestamp=\(sampleTime.timeIntervalSince1970) glucoseMgDl=\(frame.glucoseMgDl)")
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.delegate?.aidex(self, didReceive: point)
@@ -825,9 +855,16 @@ public final class AidexSensor: NSObject, ObservableObject {
     }
 
     func handleStatusFrame(_ decrypted: Data) {
-        guard decrypted.count >= 3 else { return }
+        guard decrypted.count >= 3 else {
+            print("[Aidex-DEBUG] F003 status rejected reason=too-short bytes=\(decrypted.count)")
+            return
+        }
         let mv = Int(decrypted[1]) | (Int(decrypted[2]) << 8)
-        guard mv >= 500, mv <= 3500 else { return }
+        guard mv >= 500, mv <= 3500 else {
+            print("[Aidex-DEBUG] F003 status rejected reason=battery-out-of-range mv=\(mv)")
+            return
+        }
+        print("[Aidex-DEBUG] F003 status accepted batteryMv=\(mv)")
         batteryMV = mv
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -839,18 +876,26 @@ public final class AidexSensor: NSObject, ObservableObject {
 
     func handleF002(response: Data) {
         let plaintext: Data
-        if keyExchange.isComplete, let dec = keyExchange.decrypt(response) {
+        let decryptionAttempted = keyExchange.isComplete
+        if decryptionAttempted, let dec = keyExchange.decrypt(response) {
             plaintext = dec
         } else {
             plaintext = response
         }
 
-        guard !plaintext.isEmpty else { return }
+        guard !plaintext.isEmpty else {
+            print("[Aidex-DEBUG] F002 response empty encryptedBytes=\(response.count) decryptAttempted=\(decryptionAttempted)")
+            return
+        }
         let opcode = plaintext[0]
-
+        let opcodeText = String(format: "0x%02X", opcode)
         let crcValid = plaintext.count < 3 || CRC16.validateResponse(plaintext)
-        let dataOpcodes: Set<UInt8> = [0x21, 0x22, 0x23, 0x24, 0x26, 0x27]
-        if !crcValid && dataOpcodes.contains(opcode) { return }
+        let dataOpcodes: Set<UInt8> = [0x10, 0x21, 0x22, 0x23, 0x24, 0x26, 0x27]
+        print("[Aidex-DEBUG] F002 response encryptedBytes=\(response.count) plaintextBytes=\(plaintext.count) decryptAttempted=\(decryptionAttempted) crcValid=\(crcValid) opcode=\(opcodeText)")
+        if !crcValid && dataOpcodes.contains(opcode) {
+            print("[Aidex-DEBUG] F002 response rejected reason=crc-failed opcode=\(opcodeText) bytes=\(plaintext.count)")
+            return
+        }
 
         switch opcode {
         case 0x10: handleStartupInfo(plaintext)
@@ -866,12 +911,23 @@ public final class AidexSensor: NSObject, ObservableObject {
         case 0x35: handleDynamicAdvModeAck()
         case 0xF2: handleDeleteBondAck()
         case 0xF3: handleClearStorageAck()
-        default: break
+        default:
+            print("[Aidex-DEBUG] F002 unknown response opcode=\(opcodeText) bytes=\(plaintext.count)")
         }
     }
 
     func handleStartupInfo(_ data: Data) {
-        guard let info = AidexParser.parseStartupDeviceInfoFrame(data) else { return }
+        guard let info = AidexParser.parseStartupDeviceInfoFrame(data) else {
+            let crcStrippedBytes = data.count >= 3 && CRC16.validateResponse(data) ? data.count - 2 : data.count
+            print("[Aidex-DEBUG] F002 startup-info parse failed bytes=\(data.count) payloadBytesAfterCRC=\(max(0, crcStrippedBytes - 1)) crcValid=\(data.count < 3 || CRC16.validateResponse(data))")
+            // The 0x10 metadata is optional; GX-01S still needs the independent
+            // legacy start-time request to unlock streaming when 0x2AAA is absent.
+            if !hasAuthoritativeSessionStart {
+                requestLegacyStartTime("post-0x10-parse-failed")
+            }
+            return
+        }
+        print("[Aidex-DEBUG] F002 startup-info parsed fw=\(info.firmwareVersion) hw=\(info.hardwareVersion) wearDays=\(info.wearDays) model=\(info.modelName)")
         firmwareVersion = info.firmwareVersion
         hardwareVersion = info.hardwareVersion
         modelName = info.modelName
@@ -895,20 +951,48 @@ public final class AidexSensor: NSObject, ObservableObject {
         }
     }
 
-    /// Requests the legacy local start time (0x21). Completes the post-key bootstrap
-    /// that unlocks F003 live streaming on sensors lacking a 0x2AAA characteristic.
+    /// Requests legacy local start time (0x21) once per connection. This is a
+    /// required streaming bootstrap step even when optional 0x10 metadata is not
+    /// understood by this firmware.
     func requestLegacyStartTime(_ reason: String) {
-        guard let cmd = commandBuilder.getLegacyStartTime(), let f002 else { return }
-        print("[AidexSensor] requestLegacyStartTime(\(reason)): writing 0x21 to F002")
+        guard !hasAuthoritativeSessionStart else {
+            print("[Aidex-DEBUG] F002 request 0x21 skipped reason=authoritative-start-time-present")
+            return
+        }
+        guard !legacyStartTimeRequested else {
+            print("[Aidex-DEBUG] F002 request 0x21 skipped reason=already-requested source=\(reason)")
+            return
+        }
+        guard keyExchange.isComplete, let cmd = commandBuilder.getLegacyStartTime(), let f002,
+              peripheral?.state == .connected else {
+            print("[Aidex-DEBUG] F002 request 0x21 unavailable reason=\(reason) keyReady=\(keyExchange.isComplete) characteristic=\(f002 != nil) connected=\(peripheral?.state == .connected)")
+            return
+        }
+
+        legacyStartTimeRequested = true
+        print("[Aidex-DEBUG] F002 TX opcode=0x21 reason=\(reason) bytes=\(cmd.count) count=1")
         peripheral?.writeValue(cmd, for: f002, type: .withoutResponse)
+
+        let watchdog = DispatchWorkItem { [weak self] in
+            guard let self, self.legacyStartTimeRequested, !self.hasAuthoritativeSessionStart else { return }
+            print("[Aidex-DEBUG] F002 0x21 response timeout; request will not be retried in this connection")
+        }
+        legacyStartTimeWatchdog?.cancel()
+        legacyStartTimeWatchdog = watchdog
+        bleQueue.asyncAfter(deadline: .now() + .milliseconds(Int(AidexTimeout.gattOperation)), execute: watchdog)
     }
 
     func handleBroadcastData(_ data: Data) {
         // Connected 0x11 broadcast sample carries a live glucose point identical in
         // shape to a direct F003 data frame. Route it through the same parser so the
         // first-live-reading history trigger and delegate delivery stay single-sourced.
-        let payloadEnd = data.count >= 4 && CRC16.validateResponse(data) ? data.count - 2 : data.count
-        guard payloadEnd > 2 else { return }
+        let hasCRC = data.count >= 4
+        let crcValid = hasCRC && CRC16.validateResponse(data)
+        let payloadEnd = crcValid ? data.count - 2 : data.count
+        guard payloadEnd > 2 else {
+            print("[Aidex-DEBUG] F002 0x11 broadcast rejected reason=too-short bytes=\(data.count) crcPresent=\(hasCRC) crcValid=\(crcValid)")
+            return
+        }
         let payload = data.subdata(in: 2..<payloadEnd)
         handleBroadcastPayload(payload, source: "connected-broadcast")
     }
@@ -920,20 +1004,30 @@ public final class AidexSensor: NSObject, ObservableObject {
         //   [5]    glucose mg/dL (u8) — or packed glucose
         // This is a best-effort FALLBACK for recovering display data when direct
         // F003 streaming is not yet producing readings; it is NOT the primary path.
-        guard payload.count >= 7 else { return }
+        guard payload.count >= 7 else {
+            print("[Aidex-DEBUG] F002 0x11 broadcast rejected reason=too-short source=\(source) payloadBytes=\(payload.count)")
+            return
+        }
 
-        let offsetCandidate = payload.count >= 4 ? Int(payload.subdata(in: 0..<4).toU32LE()) : -1
+        let offsetCandidate = Int(payload.subdata(in: 0..<4).toU32LE())
         let offsetMinutes: Int
         if offsetCandidate > 0 && offsetCandidate <= 30 * 24 * 60 {
             offsetMinutes = offsetCandidate
         } else {
             offsetMinutes = Int(payload.subdata(in: 0..<2).toU16LE())
         }
-        guard offsetMinutes > 0, offsetMinutes <= 30 * 24 * 60 else { return }
+        guard offsetMinutes > 0, offsetMinutes <= 30 * 24 * 60 else {
+            print("[Aidex-DEBUG] F002 0x11 broadcast rejected reason=offset-out-of-range source=\(source) offset=\(offsetMinutes)")
+            return
+        }
 
         let fallbackGlucose = Int(payload[5])
         guard fallbackGlucose >= AidexFrame.minValidGlucose,
-              fallbackGlucose <= AidexFrame.maxValidGlucose else { return }
+              fallbackGlucose <= AidexFrame.maxValidGlucose else {
+            print("[Aidex-DEBUG] F002 0x11 broadcast rejected reason=glucose-out-of-range source=\(source) value=\(fallbackGlucose)")
+            return
+        }
+        print("[Aidex-DEBUG] F002 0x11 broadcast accepted source=\(source) offsetMin=\(offsetMinutes)")
 
         lastOffsetMinutes = offsetMinutes
         if offsetMinutes > liveOffsetCutoff { liveOffsetCutoff = offsetMinutes }
@@ -959,6 +1053,7 @@ public final class AidexSensor: NSObject, ObservableObject {
             startHistoryAfterFirstLiveReading()
         }
 
+        print("[Aidex-DEBUG] F002 broadcast glucose delegate dispatch offsetMin=\(offsetMinutes) timestamp=\(sampleTime.timeIntervalSince1970) glucoseMgDl=\(fallbackGlucose)")
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.delegate?.aidex(self, didReceive: point)
@@ -966,11 +1061,21 @@ public final class AidexSensor: NSObject, ObservableObject {
     }
 
     func handleLegacyStartTime(_ data: Data) {
-        let payloadEnd = data.count >= 4 && CRC16.validateResponse(data) ? data.count - 2 : data.count
-        guard payloadEnd > 2 else { return }
+        let hasCRC = data.count >= 4
+        let crcValid = hasCRC && CRC16.validateResponse(data)
+        let payloadEnd = crcValid ? data.count - 2 : data.count
+        guard payloadEnd > 2 else {
+            print("[Aidex-DEBUG] F002 0x21 rejected reason=too-short bytes=\(data.count) crcPresent=\(hasCRC) crcValid=\(crcValid)")
+            return
+        }
         let payload = data.subdata(in: 2..<payloadEnd)
-        let hex0x21 = data.map { String(format: "%02X", $0) }.joined(separator: " ")
-        guard let st = AidexParser.parseLocalStartTimePayload(payload) else { return }
+        guard let st = AidexParser.parseLocalStartTimePayload(payload) else {
+            print("[Aidex-DEBUG] F002 0x21 timestamp parse failed bytes=\(data.count) payloadBytes=\(payload.count) crcPresent=\(hasCRC) crcValid=\(crcValid)")
+            return
+        }
+        print("[Aidex-DEBUG] F002 0x21 timestamp parsed year=\(st.year) month=\(st.month) day=\(st.day) hour=\(st.hour) minute=\(st.minute) second=\(st.second) allZeros=\(st.isAllZeros)")
+        legacyStartTimeWatchdog?.cancel()
+        legacyStartTimeWatchdog = nil
         applySessionStartTime(st, source: "0x21")
         // After receiving 0x21 (session start time), the sensor is ready to stream
         // F003 and serve history. Delay the history range request to give the sensor
@@ -981,7 +1086,11 @@ public final class AidexSensor: NSObject, ObservableObject {
     }
 
     func handleHistoryRangeResponse(_ data: Data) {
-        guard let range = AidexParser.parseHistoryRange(data) else { return }
+        guard let range = AidexParser.parseHistoryRange(data) else {
+            print("[Aidex-DEBUG] F002 0x22 history range parse failed bytes=\(data.count)")
+            return
+        }
+        print("[Aidex-DEBUG] F002 0x22 history range parsed rawStart=\(range.rawStart) briefStart=\(range.briefStart) newest=\(range.newestOffset)")
         historyNewestOffset = range.newestOffset
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -996,6 +1105,7 @@ public final class AidexSensor: NSObject, ObservableObject {
 
     func handleHistoryRawResponse(_ data: Data) {
         let entries = AidexParser.parseHistoryResponse(data)
+        print("[Aidex-DEBUG] F002 0x23 history page bytes=\(data.count) entries=\(entries.count) nextOffset=\(historyRawNextIndex)")
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.delegate?.aidex(self, didReceiveCalibratedHistory: entries)
@@ -1014,6 +1124,7 @@ public final class AidexSensor: NSObject, ObservableObject {
 
     func handleHistoryBriefResponse(_ data: Data) {
         let entries = AidexParser.parseBriefHistoryResponse(data)
+        print("[Aidex-DEBUG] F002 0x24 history page bytes=\(data.count) entries=\(entries.count) nextOffset=\(historyBriefNextIndex)")
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.delegate?.aidex(self, didReceiveAdcHistory: entries)
@@ -1027,13 +1138,21 @@ public final class AidexSensor: NSObject, ObservableObject {
     }
 
     func handleCalibrationRangeResponse(_ data: Data) {
-        guard let range = AidexParser.parseCalibrationRange(data),
-              range.endIndex > range.startIndex else { return }
+        guard let range = AidexParser.parseCalibrationRange(data) else {
+            print("[Aidex-DEBUG] F002 0x26 calibration range parse failed bytes=\(data.count)")
+            return
+        }
+        print("[Aidex-DEBUG] F002 0x26 calibration range start=\(range.startIndex) end=\(range.endIndex)")
+        guard range.endIndex > range.startIndex else {
+            print("[Aidex-DEBUG] F002 0x26 calibration range empty")
+            return
+        }
         requestCalibrationPage(index: range.endIndex)
     }
 
     func handleCalibrationResponse(_ data: Data) {
         let records = AidexParser.parseCalibrationResponse(data)
+        print("[Aidex-DEBUG] F002 0x27 calibration records=\(records.count) bytes=\(data.count)")
         calibrations = records
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -1044,20 +1163,31 @@ public final class AidexSensor: NSObject, ObservableObject {
     // MARK: - History Requests
 
     func requestHistoryRange() {
-        guard let f002, let cmd = commandBuilder.getHistoryRange() else { return }
-        print("[AidexSensor] requestHistoryRange: writing 0x22 to F002, \(cmd.count) bytes")
+        guard let f002, let cmd = commandBuilder.getHistoryRange() else {
+            print("[Aidex-DEBUG] F002 request 0x22 unavailable characteristic=\(f002 != nil) command=false")
+            return
+        }
+        print("[Aidex-DEBUG] F002 TX opcode=0x22 bytes=\(cmd.count)")
         peripheral?.writeValue(cmd, for: f002, type: .withoutResponse)
         scheduleHistoryPageWatchdog()
     }
 
     func requestNextHistoryRawPage() {
-        guard let f002, let cmd = commandBuilder.getHistoriesRaw(offset: historyRawNextIndex) else { return }
+        guard let f002, let cmd = commandBuilder.getHistoriesRaw(offset: historyRawNextIndex) else {
+            print("[Aidex-DEBUG] F002 request 0x23 unavailable offset=\(historyRawNextIndex)")
+            return
+        }
+        print("[Aidex-DEBUG] F002 TX opcode=0x23 offset=\(historyRawNextIndex) bytes=\(cmd.count)")
         peripheral?.writeValue(cmd, for: f002, type: .withoutResponse)
         scheduleHistoryPageWatchdog()
     }
 
     func requestNextBriefPage() {
-        guard let f002, let cmd = commandBuilder.getHistories(offset: historyBriefNextIndex) else { return }
+        guard let f002, let cmd = commandBuilder.getHistories(offset: historyBriefNextIndex) else {
+            print("[Aidex-DEBUG] F002 request 0x24 unavailable offset=\(historyBriefNextIndex)")
+            return
+        }
+        print("[Aidex-DEBUG] F002 TX opcode=0x24 offset=\(historyBriefNextIndex) bytes=\(cmd.count)")
         peripheral?.writeValue(cmd, for: f002, type: .withoutResponse)
         scheduleHistoryPageWatchdog()
     }
@@ -1095,12 +1225,13 @@ public final class AidexSensor: NSObject, ObservableObject {
     // MARK: - Calibration
 
     func sendCalibration(glucoseMgDl: Int) {
+        let f002Characteristic = f002
         guard keyExchange.isComplete, lastOffsetMinutes > 0,
               glucoseMgDl >= 30, glucoseMgDl <= 500,
               let cmd = commandBuilder.setCalibration(offsetMinutes: lastOffsetMinutes, glucoseMgDl: glucoseMgDl),
-              let f002
+              let f002Characteristic
         else {
-            print("[AidexSensor] sendCalibration FAILED: keComplete=\(keyExchange.isComplete) offset=\(lastOffsetMinutes) mgDl=\(glucoseMgDl)")
+            print("[Aidex-DEBUG] F002 calibration unavailable keyReady=\(keyExchange.isComplete) offset=\(lastOffsetMinutes) characteristic=\(self.f002 != nil)")
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.delegate?.aidex(self, didReceiveCalibrationResult: false, message: "Cannot calibrate")
@@ -1108,7 +1239,7 @@ public final class AidexSensor: NSObject, ObservableObject {
             return
         }
 
-        print("[AidexSensor] sendCalibration: writing SET_CALIBRATION offset=\(lastOffsetMinutes) mgDl=\(glucoseMgDl) cmd=\(cmd.count) bytes withoutResponse")
+        print("[Aidex-DEBUG] F002 TX opcode=0x27 calibration offset=\(lastOffsetMinutes) bytes=\(cmd.count)")
         statusMessage = "Calibrating..."
         bleQueue.async { [weak self] in
             guard let self else { return }
@@ -1116,7 +1247,7 @@ public final class AidexSensor: NSObject, ObservableObject {
             // does not ACK command writes to F002. With .withResponse, iOS
             // returns "Writing is not permitted" because the peripheral
             // doesn't send a Write Response for this characteristic.
-            self.peripheral?.writeValue(cmd, for: self.f002!, type: .withoutResponse)
+            self.peripheral?.writeValue(cmd, for: f002Characteristic, type: .withoutResponse)
         }
     }
 }

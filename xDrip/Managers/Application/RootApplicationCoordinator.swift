@@ -2955,8 +2955,15 @@ extension RootApplicationCoordinator: @preconcurrency CGMTransmitterDelegate {
         var supressReadingIfSensorIsWarmingUp: Bool = false
         
         if let sensorAgeInSeconds = sensorAge {
-            let cgmTransmitterType = bluetoothPeripheralManager?.getCGMTransmitter()?.cgmTransmitterType()
-            let minimumWarmUpRequiredInMinutes = cgmTransmitterType == .dexcomG7 ? ConstantsMaster.minimumSensorWarmUpRequiredInMinutesDexcomG7 : ConstantsMaster.minimumSensorWarmUpRequiredInMinutes
+            let minimumWarmUpRequiredInMinutes: Double
+            switch bluetoothPeripheralManager?.getCGMTransmitter()?.cgmTransmitterType() {
+            case .dexcomG7:
+                minimumWarmUpRequiredInMinutes = ConstantsMaster.minimumSensorWarmUpRequiredInMinutesDexcomG7
+            case .Aidex:
+                minimumWarmUpRequiredInMinutes = ConstantsAidex.warmupMinutes
+            default:
+                minimumWarmUpRequiredInMinutes = ConstantsMaster.minimumSensorWarmUpRequiredInMinutes
+            }
             let secondsUntilWarmUpComplete = (minimumWarmUpRequiredInMinutes * 60) - sensorAgeInSeconds
 
             if Self.shouldSuppressReadingDuringWarmup(
