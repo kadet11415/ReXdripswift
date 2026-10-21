@@ -295,6 +295,7 @@ enum XDripCGMMetadataBuilder {
         case .miaomiao: return "libre_miaomiao"
         case .Bubble: return "libre_bubble"
         case .medtrumTouchCareNano: return "medtrum_nano"
+        case .ottai: return "ottai_syai"
         case .Aidex: return "aidex"
         case nil: return nil
         }
@@ -315,7 +316,7 @@ enum XDripCGMMetadataBuilder {
     private static func directExpectedInterval(_ type: CGMTransmitterType?) -> Double? {
         switch type {
         case .dexcom, .dexcomG7: return 300
-        case .Libre3, .Libre2, .miaomiao, .Bubble, .medtrumTouchCareNano, .Aidex: return 60
+        case .Libre3, .Libre2, .miaomiao, .Bubble, .medtrumTouchCareNano, .ottai, .Aidex: return 60
         case nil: return nil
         }
     }
@@ -341,6 +342,8 @@ enum XDripCGMMetadataBuilder {
             return .minutes(transmitter?.isAnubisG6() == true
                 ? ConstantsMaster.minimumSensorWarmUpRequiredInMinutesDexcomG6Anubis
                 : ConstantsMaster.minimumSensorWarmUpRequiredInMinutesDexcomG5G6)
+        case .ottai:
+            return .minutes(ConstantsMaster.minimumSensorWarmUpRequiredInMinutesOttai)
         case .Libre3, .Libre2, .miaomiao, .Bubble, .medtrumTouchCareNano, .Aidex:
             return .minutes(ConstantsMaster.minimumSensorWarmUpRequiredInMinutes)
         case nil:

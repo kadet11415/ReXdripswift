@@ -2020,6 +2020,10 @@ import AppIntents
                 calibrator = Libre1Calibrator()
             }
 
+        case .ottai:
+            // Ottai / Syai send glucose that is already calibrated
+            calibrator = NoCalibrator()
+
         case .medtrumTouchCareNano:
             // Values arrive already calibrated to mg/dL. The transmitter applies the Medtrum per-sensor
             // calibration factor decoded from each packet, so xDrip should not run its own calibrator.
@@ -3233,11 +3237,14 @@ extension RootApplicationCoordinator: @preconcurrency CGMTransmitterDelegate {
                 switch cgmTransmitterType {
                 case .dexcomG7:
                     minimumWarmUpRequiredInMinutes = ConstantsMaster.minimumSensorWarmUpRequiredInMinutesDexcomG7
+                case .ottai:
+                    minimumWarmUpRequiredInMinutes = ConstantsMaster.minimumSensorWarmUpRequiredInMinutesOttai
                 case .Aidex:
                     minimumWarmUpRequiredInMinutes = ConstantsAidex.warmupMinutes
                 default:
                     minimumWarmUpRequiredInMinutes = ConstantsMaster.minimumSensorWarmUpRequiredInMinutes
                 }
+            }
             }
             let secondsUntilWarmUpComplete = (minimumWarmUpRequiredInMinutes * 60) - sensorAgeInSeconds
 
