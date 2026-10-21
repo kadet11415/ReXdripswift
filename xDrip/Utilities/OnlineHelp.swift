@@ -387,6 +387,8 @@ extension BluetoothPeripheralType {
         switch self {
         case .M5StackType, .M5StickCType:
             return .m5Stack
+        case .Libre3Type:
+            return .devices
         case .Libre2Type:
             return .libre2
         case .MiaoMiaoType, .BubbleType:
