@@ -2936,7 +2936,8 @@ extension UserDefaults {
     /// OSLogEnabled - default false
     var OSLogEnabled: Bool {
         get {
-            return bool(forKey: Key.OSLogEnabled.rawValue)
+            // Temporarily enabled for Aidex debugging — revert to bool(forKey:) when done
+            return true
         }
         set {
             set(newValue, forKey: Key.OSLogEnabled.rawValue)
@@ -2946,7 +2947,8 @@ extension UserDefaults {
     /// NSLogEnabled - default false
     var NSLogEnabled: Bool {
         get {
-            return bool(forKey: Key.NSLogEnabled.rawValue)
+            // Temporarily enabled for Aidex debugging — revert to bool(forKey:) when done
+            return true
         }
         set {
             set(newValue, forKey: Key.NSLogEnabled.rawValue)

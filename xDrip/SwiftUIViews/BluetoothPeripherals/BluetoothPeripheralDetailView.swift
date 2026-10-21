@@ -142,6 +142,18 @@ struct BluetoothPeripheralDetailView: View {
             }
             state.updateSignalStrengthPolling(active: phase == .active)
         }
+        .sheet(isPresented: Binding<Bool>(
+            get: { state.discoveredAidexDevices != nil },
+            set: { if !$0 { state.discoveredAidexDevices = nil } }
+        )) {
+            if let devices = state.discoveredAidexDevices {
+                AidexDevicePickerView(
+                    devices: devices,
+                    onSelect: { state.selectAidexDevice($0) },
+                    onCancel: { state.discoveredAidexDevices = nil }
+                )
+            }
+        }
         .frame(maxWidth: UIDevice.current.userInterfaceIdiom == .pad ? 780 : .infinity)
         .frame(maxWidth: .infinity)
     }

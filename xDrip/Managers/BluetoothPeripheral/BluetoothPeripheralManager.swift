@@ -174,7 +174,7 @@ class BluetoothPeripheralManager: NSObject {
                         _ = m5StackBluetoothTransmitter.writeBgReadingInfo(bgReading: bgReadingToSend[0])
                     }
                     
-                case .DexcomType, .BubbleType, .MiaoMiaoType, .Libre2Type, .Libre3Type, .DexcomG7Type, .MedtrumTouchCareNanoType:
+                case .DexcomType, .BubbleType, .MiaoMiaoType, .Libre2Type, .Libre3Type, .DexcomG7Type, .MedtrumTouchCareNanoType, .AidexType:
                     // cgm's don't receive reading, they send it
                     break
                     
@@ -416,6 +416,21 @@ class BluetoothPeripheralManager: NSObject {
                         }
                     }
 
+                case .AidexType:
+
+                    if let aidex = bluetoothPeripheral as? Aidex {
+
+                        if let cgmTransmitterDelegate = cgmTransmitterDelegate {
+
+                            newTransmitter = CGMAidexTransmitter(address: aidex.blePeripheral.address, name: aidex.blePeripheral.name, bluetoothTransmitterDelegate: self, cGMAidexTransmitterDelegate: self, sensorSerialNumber: aidex.blePeripheral.sensorSerialNumber, cGMTransmitterDelegate: cgmTransmitterDelegate, nonFixedSlopeEnabled: nil, webOOPEnabled: nil)
+
+                        } else {
+
+                            trace("in getBluetoothTransmitter, case AidexType but cgmTransmitterDelegate is nil, looks like a coding error ", log: log, category: ConstantsLog.categoryBluetoothPeripheralManager, type: .error)
+
+                        }
+                    }
+
                 }
                 
                 
@@ -498,6 +513,11 @@ class BluetoothPeripheralManager: NSObject {
             case .MedtrumTouchCareNanoType:
                 if bluetoothTransmitter is CGMMedtrumTouchCareNanoTransmitter {
                     return .MedtrumTouchCareNanoType
+                }
+
+            case .AidexType:
+                if bluetoothTransmitter is CGMAidexTransmitter {
+                    return .AidexType
                 }
                 
             }
@@ -593,6 +613,14 @@ class BluetoothPeripheralManager: NSObject {
             }
 
             return CGMMedtrumTouchCareNanoTransmitter(address: nil, name: nil, bluetoothTransmitterDelegate: bluetoothTransmitterDelegate ?? self, cGMTransmitterDelegate: cgmTransmitterDelegate)
+
+        case .AidexType:
+
+            guard let cgmTransmitterDelegate = cgmTransmitterDelegate else {
+                fatalError("in createNewTransmitter, AidexType, cgmTransmitterDelegate is nil")
+            }
+
+            return CGMAidexTransmitter(address: nil, name: nil, bluetoothTransmitterDelegate: bluetoothTransmitterDelegate ?? self, cGMAidexTransmitterDelegate: self, sensorSerialNumber: nil, cGMTransmitterDelegate: cgmTransmitterDelegate, nonFixedSlopeEnabled: nil, webOOPEnabled: nil)
             
         }
         
@@ -1068,6 +1096,30 @@ class BluetoothPeripheralManager: NSObject {
 
                     }
 
+                case .AidexType:
+
+                    if let aidex = blePeripheral.aidex {
+
+                        blePeripheralFound = true
+
+                        let index = insertInBluetoothPeripherals(bluetoothPeripheral: aidex)
+
+                        if aidex.blePeripheral.shouldconnect {
+
+                            bluetoothTransmitters.insert(CGMAidexTransmitter(address: aidex.blePeripheral.address, name: aidex.blePeripheral.name, bluetoothTransmitterDelegate: self, cGMAidexTransmitterDelegate: self, sensorSerialNumber: aidex.blePeripheral.sensorSerialNumber, cGMTransmitterDelegate: cgmTransmitterDelegate, nonFixedSlopeEnabled: nil, webOOPEnabled: nil), at: index)
+
+                            if bluetoothPeripheralType.category() == .CGM {
+                                currentCgmTransmitterAddress = blePeripheral.address
+                            }
+
+                        } else {
+
+                            bluetoothTransmitters.insert(nil, at: index)
+
+                        }
+
+                    }
+
                 }
 
             }
@@ -1187,7 +1239,7 @@ class BluetoothPeripheralManager: NSObject {
                     bluetoothPeripheral.blePeripheral.parameterUpdateNeededAtNextConnect = true
                 }
              
-            case .DexcomType, .BubbleType, .MiaoMiaoType, .Libre2Type, .Libre3Type, .Libre3HeartBeatType, .DexcomG7HeartBeatType, .OmniPodHeartBeatType, .DexcomG7Type, .MedtrumTouchCareNanoType:
+            case .DexcomType, .BubbleType, .MiaoMiaoType, .Libre2Type, .Libre3Type, .Libre3HeartBeatType, .DexcomG7HeartBeatType, .OmniPodHeartBeatType, .DexcomG7Type, .MedtrumTouchCareNanoType, .AidexType:
 
                 // nothing to check
                 break
@@ -1211,6 +1263,24 @@ extension BluetoothPeripheralManager: BluetoothPeripheralManaging {
             cgmTransmitter.requestNewReading()
         }
         
+    }
+
+    func aidexResetSensor() {
+        guard let aidex = getCGMTransmitter() as? CGMAidexTransmitter else {
+            trace("aidexResetSensor: no Aidex transmitter found", log: log, category: ConstantsLog.categoryBluetoothPeripheralManager, type: .error)
+            return
+        }
+        trace("aidexResetSensor: calling resetSensor()", log: log, category: ConstantsLog.categoryBluetoothPeripheralManager, type: .info)
+        aidex.resetSensor()
+    }
+
+    func aidexUnpairSensor() {
+        guard let aidex = getCGMTransmitter() as? CGMAidexTransmitter else {
+            trace("aidexUnpairSensor: no Aidex transmitter found", log: log, category: ConstantsLog.categoryBluetoothPeripheralManager, type: .error)
+            return
+        }
+        trace("aidexUnpairSensor: calling unpairSensor()", log: log, category: ConstantsLog.categoryBluetoothPeripheralManager, type: .info)
+        aidex.unpairSensor()
     }
 
     func getCGMTransmitter() -> CGMTransmitter? {
@@ -1284,6 +1354,16 @@ extension BluetoothPeripheralManager: BluetoothPeripheralManaging {
         transmitterTypeBeingScannedFor = type
         
         tempBlueToothTransmitterWhileScanningForNewBluetoothPeripheral = newBluetoothTranmsitter
+        
+        // For Aidex: use scan-only mode — collect all devices first, then let user choose.
+        if type == .AidexType, let aidexTransmitter = newBluetoothTranmsitter as? CGMAidexTransmitter {
+            self.callBackForScanningResult = callBackForScanningResult
+            if let callBackForScanningResult = callBackForScanningResult {
+                callBackForScanningResult(.success)
+            }
+            aidexTransmitter.scanForDevices()
+            return
+        }
         
         // start scanning
         let scanningResult = newBluetoothTranmsitter.startScanning()
