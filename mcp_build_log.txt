@@ -1,0 +1,133 @@
+[23:37:19] initialized: serverInfo={"name": "xcode-tools", "version": "25317"}
+[23:37:19] === TOOLS ===
+[23:37:21] TOOL BuildProject: schema={"properties": {"buildForTesting": {"description": "Whether to also build test targets that would not usually be included in a regular build", "type": "boolean"}, "workspaceIdentifier": {"description": "Identifies the target workspace directly (used in headless mode): its workspace identifier (e.g. workspace1) or its absolute path.", "type": "string"}}, "required": [], "type": "object"}
+[23:37:21] TOOL GetBuildLog: schema={"properties": {"glob": {"description": "Glob to filter the returned build log entries. Will match against the 'path' field of any emitted issues, as well as against the location of any build task.", "type": "string"}, "pattern": {"description": "Regex to filter the returned build log entries. Will match against the 'message' field of any emitted issues, as well as the task description, command line, and console output of any build tasks.", "type": "string"}, "severity": {"description": "Limit the output of build log entries to those that emitted issues of the specified severity or higher. Valid values in order of decreasing severity are 'error', 'warning', 'remark'. Defaults to 'error'.", "enum": ["remark", "warning", "error"], "type": "string"}, "workspaceIdentifier": {"description": "Identifies the target workspace directly (used in headless mode): its workspace identifier (e.g. workspace1) or its absolute path.", "type": "string"}}, "required": [], "type": "object"}
+[23:37:21] TOOL XcodeListRunDestinations: schema={"properties": {"includeIncompatible": {"description": "When true, destinations in the 'Incompatible' group are included in the inline `destinations` array. When false or omitted (the default), they are skipped to save context but are still counted in the `groups` summary and listed in fullRunDestinationListPath.", "type": "boolean"}, "workspaceIdentifier": {"description": "Identifies the target workspace directly (used in headless mode): its workspace identifier (e.g. workspace1) or its absolute path.", "type": "string"}}, "required": [], "type": "object"}
+[23:37:21] TOOL XcodeListWorkspaces: schema={"properties": {}, "required": [], "type": "object"}
+[23:37:21] TOOL XcodeOpenWorkspace: schema={"properties": {"path": {"description": "Absolute path to the .xcworkspace or .xcodeproj to open", "type": "string"}}, "required": ["path"], "type": "object"}
+[23:37:21] TOOL XcodeSwitchRunDestination: schema={"properties": {"displayTitle": {"description": "The destination's `displayTitle` \u2014 the disambiguated label shown in the Xcode picker. Round-trips through any of these prior tool outputs without needing a fresh XcodeListRunDestinations call: this tool's own `activeDestinationDisplayTitle`, XcodeSwitchScheme's `activeDestinationDisplayTitle`, or any `displayTitle` / `activeDestinationDisplayTitle` from XcodeListRunDestinations.", "type": "string"}, "workspaceIdentifier": {"description": "Identifies the target workspace directly (used in headless mode): its workspace identifier (e.g. workspace1) or its absolute path.", "type": "string"}}, "required": ["displayTitle"], "type": "object"}
+[23:37:21] TOOL XcodeSwitchScheme: schema={"properties": {"schemeName": {"description": "The name of the scheme to make active. To resolve ambiguity when multiple schemes share the same name, use the disambiguated name returned by XcodeListSchemes (for example, \"MyScheme (MyProject)\").", "type": "string"}, "workspaceIdentifier": {"description": "Identifies the target workspace directly (used in headless mode): its workspace identifier (e.g. workspace1) or its absolute path.", "type": "string"}}, "required": ["schemeName"], "type": "object"}
+[23:37:21] >> XcodeOpenWorkspace {"workspace_path": "/Users/aleksandrrepnikov/Downloads/ReXdripswift-aidex/xdrip.xcworkspace"}
+[23:37:21] << XcodeOpenWorkspace isError=True
+[23:37:21] --- XcodeOpenWorkspace result text (first 4000 chars) ---
+This call would open or create a project, but the path it named can't be put in front of the user for approval. Retry it with a plain absolute path.
+---
+[23:37:21] >> XcodeSwitchScheme {"scheme": "xdrip"}
+[23:37:21] << XcodeSwitchScheme isError=True
+[23:37:21] --- XcodeSwitchScheme result text (first 4000 chars) ---
+This agent isn't approved to use Xcode's tools yet. Call XcodeOpenWorkspace or XcodeNewProject first: opening or creating a project is what asks the user to approve this agent, together with access to that project's folder.
+---
+[23:37:21] >> XcodeListRunDestinations {"workspace_path": "/Users/aleksandrrepnikov/Downloads/ReXdripswift-aidex/xdrip.xcworkspace"}
+[23:37:21] << XcodeListRunDestinations isError=True
+[23:37:21] --- XcodeListRunDestinations result text (first 4000 chars) ---
+This agent isn't approved to use Xcode's tools yet. Call XcodeOpenWorkspace or XcodeNewProject first: opening or creating a project is what asks the user to approve this agent, together with access to that project's folder.
+---
+[23:37:21] >> BuildProject {"workspace_path": "/Users/aleksandrrepnikov/Downloads/ReXdripswift-aidex/xdrip.xcworkspace"}
+[23:37:21] << BuildProject isError=True
+[23:37:21] --- BuildProject result text (first 4000 chars) ---
+This agent isn't approved to use Xcode's tools yet. Call XcodeOpenWorkspace or XcodeNewProject first: opening or creating a project is what asks the user to approve this agent, together with access to that project's folder.
+---
+[23:37:21] BuildProject wall time: 0.0 min
+[23:37:21] === GET BUILD LOG ===
+[23:37:21] >> GetBuildLog {}
+[23:37:21] << GetBuildLog isError=True
+[23:37:21] --- GetBuildLog result text (first 4000 chars) ---
+This agent isn't approved to use Xcode's tools yet. Call XcodeOpenWorkspace or XcodeNewProject first: opening or creating a project is what asks the user to approve this agent, together with access to that project's folder.
+---
+[23:46:34] serverInfo={"name": "xcode-tools", "version": "25317"}
+[23:46:35] TOOL BuildProject: schema={"properties": {"buildForTesting": {"description": "Whether to also build test targets that would not usually be included in a regular build", "type": "boolean"}, "workspaceIdentifier": {"description": "Identifies the target workspace directly (used in headless mode): its workspace identifier (e.g. workspace1) or its absolute path.", "type": "string"}}, "required": [], "type": "object"}
+[23:46:35] TOOL GetBuildLog: schema={"properties": {"glob": {"description": "Glob to filter the returned build log entries. Will match against the 'path' field of any emitted issues, as well as against the location of any build task.", "type": "string"}, "pattern": {"description": "Regex to filter the returned build log entries. Will match against the 'message' field of any emitted issues, as well as the task description, command line, and console output of any build tasks.", "type": "string"}, "severity": {"description": "Limit the output of build log entries to those that emitted issues of the specified severity or higher. Valid values in order of decreasing severity are 'error', 'warning', 'remark'. Defaults to 'error'.", "enum": ["remark", "warning", "error"], "type": "string"}, "workspaceIdentifier": {"description": "Id
+[23:46:35] TOOL XcodeOpenWorkspace: schema={"properties": {"path": {"description": "Absolute path to the .xcworkspace or .xcodeproj to open", "type": "string"}}, "required": ["path"], "type": "object"}
+[23:46:35] TOOL XcodeSwitchScheme: schema={"properties": {"schemeName": {"description": "The name of the scheme to make active. To resolve ambiguity when multiple schemes share the same name, use the disambiguated name returned by XcodeListSchemes (for example, \"MyScheme (MyProject)\").", "type": "string"}, "workspaceIdentifier": {"description": "Identifies the target workspace directly (used in headless mode): its workspace identifier (e.g. workspace1) or its absolute path.", "type": "string"}}, "required": ["schemeName"], "type": "object"}
+[23:46:35] >> XcodeOpenWorkspace {"path": "/Users/aleksandrrepnikov/Downloads/ReXdripswift-aidex/xdrip.xcworkspace"}
+[23:47:39] << XcodeOpenWorkspace isError=True
+[23:47:39] --- XcodeOpenWorkspace result ---
+Xcode is waiting for the user to approve this request; it has been recorded. Ask the user to approve it from the Xcode MCP menu bar icon, or via `xcrun mcp-server`, then retry.
+---
+[23:47:39] >> XcodeSwitchScheme {"schemeName": "xdrip", "workspaceIdentifier": "/Users/aleksandrrepnikov/Downloads/ReXdripswift-aidex/xdrip.xcworkspace"}
+[23:47:39] << XcodeSwitchScheme isError=True
+[23:47:39] --- XcodeSwitchScheme result ---
+Error Domain=mcpbridge Code=1 "The background MCP server (XcodeService) call to XcodeListWorkspaces failed: Xcode is waiting for the user to approve this request; it has been recorded. Ask the user to approve it from the Xcode MCP menu bar icon, or via `xcrun mcp-server`, then retry.. Run `xcrun mcp-server status` to check it, then retry." UserInfo={NSLocalizedDescription=The background MCP server (XcodeService) call to XcodeListWorkspaces failed: Xcode is waiting for the user to approve this request; it has been recorded. Ask the user to approve it from the Xcode MCP menu bar icon, or via `xcrun mcp-server`, then retry.. Run `xcrun mcp-server status` to check it, then retry.}
+---
+[23:47:39] >> XcodeListRunDestinations {"workspaceIdentifier": "/Users/aleksandrrepnikov/Downloads/ReXdripswift-aidex/xdrip.xcworkspace"}
+[23:47:39] << XcodeListRunDestinations isError=True
+[23:47:39] --- XcodeListRunDestinations result ---
+Error Domain=mcpbridge Code=1 "The background MCP server (XcodeService) call to XcodeListWorkspaces failed: Xcode is waiting for the user to approve this request; it has been recorded. Ask the user to approve it from the Xcode MCP menu bar icon, or via `xcrun mcp-server`, then retry.. Run `xcrun mcp-server status` to check it, then retry." UserInfo={NSLocalizedDescription=The background MCP server (XcodeService) call to XcodeListWorkspaces failed: Xcode is waiting for the user to approve this request; it has been recorded. Ask the user to approve it from the Xcode MCP menu bar icon, or via `xcrun mcp-server`, then retry.. Run `xcrun mcp-server status` to check it, then retry.}
+---
+[23:47:39] >> BuildProject {"workspaceIdentifier": "/Users/aleksandrrepnikov/Downloads/ReXdripswift-aidex/xdrip.xcworkspace"}
+[23:47:39] << BuildProject isError=True
+[23:47:39] --- BuildProject result ---
+Error Domain=mcpbridge Code=1 "The background MCP server (XcodeService) call to XcodeListWorkspaces failed: Xcode is waiting for the user to approve this request; it has been recorded. Ask the user to approve it from the Xcode MCP menu bar icon, or via `xcrun mcp-server`, then retry.. Run `xcrun mcp-server status` to check it, then retry." UserInfo={NSLocalizedDescription=The background MCP server (XcodeService) call to XcodeListWorkspaces failed: Xcode is waiting for the user to approve this request; it has been recorded. Ask the user to approve it from the Xcode MCP menu bar icon, or via `xcrun mcp-server`, then retry.. Run `xcrun mcp-server status` to check it, then retry.}
+---
+[23:47:39] BuildProject wall time: 0.0 min
+[23:47:39] >> GetBuildLog {"workspaceIdentifier": "/Users/aleksandrrepnikov/Downloads/ReXdripswift-aidex/xdrip.xcworkspace"}
+[23:47:39] << GetBuildLog isError=True
+[23:47:39] --- GetBuildLog result ---
+Error Domain=mcpbridge Code=1 "The background MCP server (XcodeService) call to XcodeListWorkspaces failed: Xcode is waiting for the user to approve this request; it has been recorded. Ask the user to approve it from the Xcode MCP menu bar icon, or via `xcrun mcp-server`, then retry.. Run `xcrun mcp-server status` to check it, then retry." UserInfo={NSLocalizedDescription=The background MCP server (XcodeService) call to XcodeListWorkspaces failed: Xcode is waiting for the user to approve this request; it has been recorded. Ask the user to approve it from the Xcode MCP menu bar icon, or via `xcrun mcp-server`, then retry.. Run `xcrun mcp-server status` to check it, then retry.}
+---
+[23:47:39] DONE
+[23:53:10] serverInfo={"name": "xcode-tools", "version": "25317"}
+[23:53:12] TOOL BuildProject: schema={"properties": {"buildForTesting": {"description": "Whether to also build test targets that would not usually be included in a regular build", "type": "boolean"}, "workspaceIdentifier": {"description": "Identifies the target workspace directly (used in headless mode): its workspace identifier (e.g. workspace1) or its absolute path.", "type": "string"}}, "required": [], "type": "object"}
+[23:53:12] TOOL GetBuildLog: schema={"properties": {"glob": {"description": "Glob to filter the returned build log entries. Will match against the 'path' field of any emitted issues, as well as against the location of any build task.", "type": "string"}, "pattern": {"description": "Regex to filter the returned build log entries. Will match against the 'message' field of any emitted issues, as well as the task description, command line, and console output of any build tasks.", "type": "string"}, "severity": {"description": "Limit the output of build log entries to those that emitted issues of the specified severity or higher. Valid values in order of decreasing severity are 'error', 'warning', 'remark'. Defaults to 'error'.", "enum": ["remark", "warning", "error"], "type": "string"}, "workspaceIdentifier": {"description": "Id
+[23:53:12] TOOL XcodeOpenWorkspace: schema={"properties": {"path": {"description": "Absolute path to the .xcworkspace or .xcodeproj to open", "type": "string"}}, "required": ["path"], "type": "object"}
+[23:53:12] TOOL XcodeSwitchScheme: schema={"properties": {"schemeName": {"description": "The name of the scheme to make active. To resolve ambiguity when multiple schemes share the same name, use the disambiguated name returned by XcodeListSchemes (for example, \"MyScheme (MyProject)\").", "type": "string"}, "workspaceIdentifier": {"description": "Identifies the target workspace directly (used in headless mode): its workspace identifier (e.g. workspace1) or its absolute path.", "type": "string"}}, "required": ["schemeName"], "type": "object"}
+[23:53:12] >> XcodeOpenWorkspace {"path": "/Users/aleksandrrepnikov/Downloads/ReXdripswift-aidex/xdrip.xcworkspace"}
+[23:53:13] << XcodeOpenWorkspace isError=False
+[23:53:13] --- XcodeOpenWorkspace result ---
+{"activeRunDestination":"iPhone 18 Pro","activeScheme":"xdrip","workspaceIdentifier":"workspace-LhJgJQwl2i","workspacePath":"\/Users\/aleksandrrepnikov\/Downloads\/ReXdripswift-aidex\/xdrip.xcworkspace"}
+---
+[23:53:13] >> XcodeSwitchScheme {"schemeName": "xdrip", "workspaceIdentifier": "/Users/aleksandrrepnikov/Downloads/ReXdripswift-aidex/xdrip.xcworkspace"}
+[23:53:13] << XcodeSwitchScheme isError=True
+[23:53:13] --- XcodeSwitchScheme result ---
+Error Domain=mcpbridge Code=1 "Unknown workspace identifier '/Users/aleksandrrepnikov/Downloads/ReXdripswift-aidex/xdrip.xcworkspace'. Call XcodeListWorkspaces to get the current list of open workspaces and their identifiers, then retry with a valid workspaceIdentifier." UserInfo={NSLocalizedDescription=Unknown workspace identifier '/Users/aleksandrrepnikov/Downloads/ReXdripswift-aidex/xdrip.xcworkspace'. Call XcodeListWorkspaces to get the current list of open workspaces and their identifiers, then retry with a valid workspaceIdentifier.}
+---
+[23:53:13] >> XcodeListRunDestinations {"workspaceIdentifier": "/Users/aleksandrrepnikov/Downloads/ReXdripswift-aidex/xdrip.xcworkspace"}
+[23:53:13] << XcodeListRunDestinations isError=True
+[23:53:13] --- XcodeListRunDestinations result ---
+Error Domain=mcpbridge Code=1 "Unknown workspace identifier '/Users/aleksandrrepnikov/Downloads/ReXdripswift-aidex/xdrip.xcworkspace'. Call XcodeListWorkspaces to get the current list of open workspaces and their identifiers, then retry with a valid workspaceIdentifier." UserInfo={NSLocalizedDescription=Unknown workspace identifier '/Users/aleksandrrepnikov/Downloads/ReXdripswift-aidex/xdrip.xcworkspace'. Call XcodeListWorkspaces to get the current list of open workspaces and their identifiers, then retry with a valid workspaceIdentifier.}
+---
+[23:53:13] >> BuildProject {"workspaceIdentifier": "/Users/aleksandrrepnikov/Downloads/ReXdripswift-aidex/xdrip.xcworkspace"}
+[23:53:13] << BuildProject isError=True
+[23:53:13] --- BuildProject result ---
+Error Domain=mcpbridge Code=1 "Unknown workspace identifier '/Users/aleksandrrepnikov/Downloads/ReXdripswift-aidex/xdrip.xcworkspace'. Call XcodeListWorkspaces to get the current list of open workspaces and their identifiers, then retry with a valid workspaceIdentifier." UserInfo={NSLocalizedDescription=Unknown workspace identifier '/Users/aleksandrrepnikov/Downloads/ReXdripswift-aidex/xdrip.xcworkspace'. Call XcodeListWorkspaces to get the current list of open workspaces and their identifiers, then retry with a valid workspaceIdentifier.}
+---
+[23:53:13] BuildProject wall time: 0.0 min
+[23:53:13] >> GetBuildLog {"workspaceIdentifier": "/Users/aleksandrrepnikov/Downloads/ReXdripswift-aidex/xdrip.xcworkspace"}
+[23:53:13] << GetBuildLog isError=True
+[23:53:13] --- GetBuildLog result ---
+Error Domain=mcpbridge Code=1 "Unknown workspace identifier '/Users/aleksandrrepnikov/Downloads/ReXdripswift-aidex/xdrip.xcworkspace'. Call XcodeListWorkspaces to get the current list of open workspaces and their identifiers, then retry with a valid workspaceIdentifier." UserInfo={NSLocalizedDescription=Unknown workspace identifier '/Users/aleksandrrepnikov/Downloads/ReXdripswift-aidex/xdrip.xcworkspace'. Call XcodeListWorkspaces to get the current list of open workspaces and their identifiers, then retry with a valid workspaceIdentifier.}
+---
+[23:53:13] DONE
+[23:57:06] serverInfo={"name": "xcode-tools", "version": "25317"}
+[23:57:06] TOOL BuildProject: schema={"properties": {"buildForTesting": {"description": "Whether to also build test targets that would not usually be included in a regular build", "type": "boolean"}, "workspaceIdentifier": {"description": "Identifies the target workspace directly (used in headless mode): its workspace identifier (e.g. workspace1) or its absolute path.", "type": "string"}}, "required": [], "type": "object"}
+[23:57:06] TOOL GetBuildLog: schema={"properties": {"glob": {"description": "Glob to filter the returned build log entries. Will match against the 'path' field of any emitted issues, as well as against the location of any build task.", "type": "string"}, "pattern": {"description": "Regex to filter the returned build log entries. Will match against the 'message' field of any emitted issues, as well as the task description, command line, and console output of any build tasks.", "type": "string"}, "severity": {"description": "Limit the output of build log entries to those that emitted issues of the specified severity or higher. Valid values in order of decreasing severity are 'error', 'warning', 'remark'. Defaults to 'error'.", "enum": ["remark", "warning", "error"], "type": "string"}, "workspaceIdentifier": {"description": "Id
+[23:57:06] TOOL XcodeOpenWorkspace: schema={"properties": {"path": {"description": "Absolute path to the .xcworkspace or .xcodeproj to open", "type": "string"}}, "required": ["path"], "type": "object"}
+[23:57:06] TOOL XcodeSwitchScheme: schema={"properties": {"schemeName": {"description": "The name of the scheme to make active. To resolve ambiguity when multiple schemes share the same name, use the disambiguated name returned by XcodeListSchemes (for example, \"MyScheme (MyProject)\").", "type": "string"}, "workspaceIdentifier": {"description": "Identifies the target workspace directly (used in headless mode): its workspace identifier (e.g. workspace1) or its absolute path.", "type": "string"}}, "required": ["schemeName"], "type": "object"}
+[23:57:06] >> XcodeOpenWorkspace {"path": "/Users/aleksandrrepnikov/Downloads/ReXdripswift-aidex/xdrip.xcworkspace"}
+[23:57:06] << XcodeOpenWorkspace isError=False
+[23:57:06] --- XcodeOpenWorkspace result ---
+{"activeRunDestination":"iPhone 18 Pro","activeScheme":"xdrip","workspaceIdentifier":"workspace-LhJgJQwl2i","workspacePath":"\/Users\/aleksandrrepnikov\/Downloads\/ReXdripswift-aidex\/xdrip.xcworkspace"}
+---
+[23:57:06] workspaceIdentifier (parsed) -> workspace-LhJgJQwl2i
+[23:57:06] >> XcodeSwitchScheme {"schemeName": "xdrip", "workspaceIdentifier": "workspace-LhJgJQwl2i"}
+[23:57:06] << XcodeSwitchScheme isError=False
+[23:57:06] --- XcodeSwitchScheme result ---
+{"activeDestinationDisplayTitle":"iPhone 18 Pro","activeSchemeName":"xdrip","message":"Active scheme is now 'xdrip' with run destination 'iPhone 18 Pro'."}
+---
+[23:57:06] >> XcodeListRunDestinations {"workspaceIdentifier": "workspace-LhJgJQwl2i"}
+[23:57:06] << XcodeListRunDestinations isError=False
+[23:57:06] --- XcodeListRunDestinations result ---
+{"activeDestinationDisplayTitle":"iPhone 18 Pro","activeSchemeName":"xdrip","destinations":[{"architecture":"arm64","displayTitle":"iPhone 18 Pro","group":"Simulators","isActive":true,"isEligible":true,"isGenericDevice":false,"isSimulator":true,"osVersion":"27.0","platformIdentifier":"com.apple.platform.iphonesimulator","sdkDisplayName":"Simulator - iOS 27.0"},{"architecture":"arm64","displayTitle":"My Mac (Designed for iPad)","group":"Devices","isActive":false,"isEligible":true,"isGenericDevice":false,"isSimulator":false,"osVersion":"27.2","platformIdentifier":"com.apple.platform.macosx","sdkDisplayName":"iOS 27.0"},{"architecture":"arm64","displayTitle":"iPad (Александр) (2)","group":"Devices","isActive":false,"isEligible":true,"isGenericDevice":false,"isSimulator":false,"osVersion":"27.0","platformIdentifier":"com.apple.platform.iphoneos","sdkDisplayName":"iOS 27.0"},{"architecture":"arm64","displayTitle":"iPhone Ксюша","group":"Devices","isActive":false,"isEligible":true,"isGenericDevice":false,"isSimulator":false,"osVersion":"26.6.2","platformIdentifier":"com.apple.platform.iphoneos","sdkDisplayName":"iOS 27.0"},{"architecture":"arm64","displayTitle":"iPhone 17","group":"Simulators","isActive":false,"isEligible":true,"isGenericDevice":false,"isSimulator":true,"osVersion":"27.0","platformIdentifier":"com.apple.platform.iphonesimulator","sdkDisplayName":"Simulator - iOS 27.0"},{"architecture":"arm64","displayTitle":"iPhone 17 Pro","group":"Simulators","isActive":false,"isEligible":true,"isGenericDevice":false,"isSimulator":true,"osVersion":"27.0","platformIdentifier":"com.apple.platform.iphonesimulator","sdkDisplayName":"Simulator - iOS 27.0"},{"architecture":"arm64","displayTitle":"iPhone 17 Pro Max","group":"Simulators","isActive":false,"isEligible":true,"isGenericDevice":false,"isSimulator":true,"osVersion":"27.0","platformIdentifier":"com.apple.platform.iphonesimulator","sdkDisplayName":"Simulator - iOS 27.0"},{"architecture":"arm64","displayTitle":"iPhone 17e","group":"Simulators","isActive":false,"isEligible":true,"isGenericDevice":false,"isSimulator":true,"osVersion":"27.0","platformIdentifier":"com.apple.platform.iphonesimulator","sdkDisplayName":"Simulator - iOS 27.0"},{"architecture":"arm64","displayTitle":"iPhone 18 Pro Max","group":"Simulators","isActive":false,"isEligible":true,"isGenericDevice":false,"isSimulator":true,"osVersion":"27.0","platformIdentifier":"com.apple.platform.iphonesimulator","sdkDisplayName":"Simulator - iOS 27.0"},{"architecture":"arm64","displayTitle":"iPhone Air","group":"Simulators","isActive":false,"isEligible":true,"isGenericDevice":false,"isSimulator":true,"osVersion":"27.0","platformIdentifier":"com.apple.platform.iphonesimulator","sdkDisplayName":"Simulator - iOS 27.0"},{"architecture":"arm64","displayTitle":"iPad (A16)","group":"Simulators","isActive":false,"isEligible":true,"isGenericDevice":false,"isSimulator":true,"osVersion":"27.0","platformIdentifier":"com.apple.platform.iphonesimulator","sdkDisplayName":"Simulator - iOS 27.0"},{"architecture":"arm64","displayTitle":"iPad Air 11-inch (M4)","group":"Simulators","isActive":false,"isEligible":true,"isGenericDevice":false,"isSimulator":true,"osVersion":"27.0","platformIdentifier":"com.apple.platform.iphonesimulator","sdkDisplayName":"Simulator - iOS 27.0"},{"architecture":"arm64","displayTitle":"iPad Air 13-inch (M4)","group":"Simulators","isActive":false,"isEligible":true,"isGenericDevice":false,"isSimulator":true,"osVersion":"27.0","platformIdentifier":"com.apple.platform.iphonesimulator","sdkDisplayName":"Simulator - iOS 27.0"},{"architecture":"arm64","displayTitle":"iPad mini (A17 Pro)","group":"Simulators","isActive":false,"isEligible":true,"isGenericDevice":false,"isSimulator":true,"osVersion":"27.0","platformIdentifier":"com.apple.platform.iphonesimulator","sdkDisplayName":"Simulator - iOS 27.0"},{"architecture":"arm64","displayTitle":"iPad Pro 11-inch (M5)","group":"Simulators","isActive":false,"isEligible":true,"isGeneri
+---
+[23:57:06] >> BuildProject {"workspaceIdentifier": "workspace-LhJgJQwl2i"}
+[23:57:40] << BuildProject isError=False
+[23:57:40] --- BuildProject result ---
+{"buildResult":"The build failed; errors are summarized in the `errors` field of the output.","elapsedTime":33.033,"errors":[{"classification":"error","filePath":"\/Users\/aleksandrrepnikov\/Downloads\/ReXdripswift-aidex\/xDrip\/Managers\/Alerts\/AlertKind.swift","lineNumber":82,"message":"Switch must be exhaustive"}],"fullLogPath":"\/var\/folders\/bf\/__yjlbqj4y764hhf3s998fp80000gn\/T\/ActionArtifacts\/default\/BuildProject\/BuildProject-Log-20261005-235740.txt"}
+---
+[23:57:40] BuildProject wall time: 0.6 min
+[23:57:40] >> GetBuildLog {"workspaceIdentifier": "workspace-LhJgJQwl2i"}
+[23:57:40] << GetBuildLog isError=False
+[23:57:40] --- GetBuildLog result ---
+{"buildIsRunning":false,"buildLogEntries":[{"buildTask":"Compile AlertKind.swift","emittedIssues":[{"line":82,"message":"Switch must be exhaustive","path":"\/Users\/aleksandrrepnikov\/Downloads\/ReXdripswift-aidex\/xDrip\/Managers\/Alerts\/AlertKind.swift","severity":"error"}]}],"buildResult":"The build failed","fullLogPath":"\/var\/folders\/bf\/__yjlbqj4y764hhf3s998fp80000gn\/T\/ActionArtifacts\/default\/GetBuildLog\/E3E6B1C2-3F44-4BC2-9087-C59683D5E797.txt","totalFound":1,"truncated":false}
+---
+[23:57:40] DONE

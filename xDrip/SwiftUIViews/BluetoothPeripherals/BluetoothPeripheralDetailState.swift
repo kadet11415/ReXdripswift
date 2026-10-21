@@ -32,10 +32,13 @@ final class BluetoothPeripheralDetailState: NSObject, ObservableObject {
     // Allows the status footer to show a warning without changing the banner status text.
     @Published private(set) var statusFooterIsWarning = false
     @Published private(set) var connectionStatus = BluetoothPeripheralDisplayStatus.notScanning
+    @Published private(set) var bluetoothAuthorization = CBManager.authorization
     @Published private(set) var connectionWaitStartedAt: Date?
     @Published private(set) var category = BluetoothPeripheralCategory.CGM
     @Published private(set) var canDeletePeripheral = false
     @Published var pendingAlert: BluetoothPeripheralDetailAlert?
+    /// Discovered Aidex sensors awaiting user selection — set by aidexDidFinishScanning.
+    @Published var discoveredAidexDevices: [DiscoveredAidexSensor]? = nil
 
     // MARK: - Dependencies
 
@@ -47,11 +50,44 @@ final class BluetoothPeripheralDetailState: NSObject, ObservableObject {
     private weak var sensorProvider: ActiveSensorProviding?
     private let bgReadingsAccessor: BgReadingsAccessor
     private let closeDetailView: () -> Void
+    private let presentLibre3Setup: () -> Void
     private let presentTextEntryView: (BluetoothPeripheralTextEntry) -> Void
     private let presentSelectionListView: (BluetoothPeripheralSelectionList) -> Void
     private let presentReadSuccessView: (TransmitterReadSuccessDisplay, String) -> Void
     private let presentSignalStrengthView: (BluetoothPeripheral) -> Void
     private let presentBatteryHistoryView: (NSManagedObjectID) -> Void
+
+    var directWatchSetupContext: DirectWatchSetupContext? {
+        if let g7 = bluetoothPeripheral as? DexcomG7,
+           let id = g7.blePeripheral.transmitterId,
+           g7.blePeripheral.shouldconnect,
+           !g7.useOtherApp {
+            let code = g7.sensorCode
+            return DirectWatchSetupContext(transmitterID: id, isAnubis: false,
+                                       phoneSlot: g7.effectiveDexcomG7BluetoothSlot().rawValue,
+                                       nativeGlucose: code?.count == 4 && code?.allSatisfy(\.isNumber) == true,
+                                       family: .g7, pairingCode: code, deviceName: dexcomTitle)
+        }
+        guard let g6 = bluetoothPeripheral as? DexcomG5,
+              let id = g6.blePeripheral.transmitterId,
+              g6.blePeripheral.shouldconnect,
+              g6.isAnubis || id.hasPrefix("8") else { return nil }
+        let transmitter = bluetoothPeripheralManager?.getBluetoothTransmitter(for: g6, createANewOneIfNecesssary: false) as? CGMG5Transmitter
+        return DirectWatchSetupContext(transmitterID: id, isAnubis: g6.isAnubis,
+                                   phoneSlot: g6.effectiveDexcomG6BluetoothSlot().rawValue,
+                                   nativeGlucose: transmitter.map { $0.isWebOOPEnabled() || $0.overruleIsWebOOPEnabled() } ?? false)
+    }
+
+    var directWatchIsEnabled: Bool {
+        guard let id = bluetoothPeripheral?.blePeripheral.transmitterId,
+              let configuration = DirectWatchSettings.configuration else { return false }
+        return configuration.transmitterID == id
+            && configuration.transmitterFamily == (bluetoothPeripheral is DexcomG7 ? .g7 : .g6)
+    }
+
+    func directWatchStatus(at date: Date) -> DirectWatchReadingStatus {
+        directWatchIsEnabled ? DirectWatchSettings.readingStatus(at: date) : .off
+    }
 
     var onlineHelpTopic: OnlineHelpTopic {
         expectedBluetoothPeripheralType.onlineHelpTopic
@@ -75,7 +111,10 @@ final class BluetoothPeripheralDetailState: NSObject, ObservableObject {
     private var signalStrengthTimer: Timer?
     private var signalStrengthVisible = false
     private var didAddObservers = false
+    private var libre3Observer: NSObjectProtocol?
+    private var receiverIDCopiedAt: Date?
     private var didStart = false
+    private let startLibre3AfterNFC: Bool
 
     /// Shown as the detail of the Ottai row that is waiting for the cloud, so the screen gives
     /// feedback while a sign-in or a fetch is running.
@@ -90,10 +129,22 @@ final class BluetoothPeripheralDetailState: NSObject, ObservableObject {
     private let m5StackRotationStrings = ["0", "90", "180", "270"]
     private let m5StackBrightnessStrings = ["0", "10", "20", "30", "40", "50", "60", "70", "80", "90", "100"]
 
+    var bluetoothAccessIsBlocked: Bool {
+        bluetoothAuthorization == .denied || bluetoothAuthorization == .restricted
+    }
+
+    var bluetoothAccessInstructions: String {
+        if bluetoothAuthorization == .restricted {
+            return Texts_BluetoothPeripheralView.bluetoothAccessRestrictedInstructions
+        }
+        return String(format: Texts_BluetoothPeripheralView.bluetoothAccessInstructions, ConstantsHomeView.applicationName)
+    }
+
     init(
         bluetoothPeripheral: BluetoothPeripheral?,
         expectedBluetoothPeripheralType: BluetoothPeripheralType,
         dexcomConfiguration: DexcomAddConfiguration? = nil,
+        startLibre3AfterNFC: Bool = false,
         coreDataManager: CoreDataManager,
         bluetoothPeripheralManager: BluetoothPeripheralManaging,
         sensorProvider: ActiveSensorProviding?,
@@ -102,11 +153,13 @@ final class BluetoothPeripheralDetailState: NSObject, ObservableObject {
         presentSelectionListView: @escaping (BluetoothPeripheralSelectionList) -> Void,
         presentReadSuccessView: @escaping (TransmitterReadSuccessDisplay, String) -> Void,
         presentBatteryHistoryView: @escaping (NSManagedObjectID) -> Void,
-        presentSignalStrengthView: @escaping (BluetoothPeripheral) -> Void
+        presentSignalStrengthView: @escaping (BluetoothPeripheral) -> Void,
+        presentLibre3Setup: @escaping () -> Void = {}
     ) {
         self.bluetoothPeripheral = bluetoothPeripheral
         self.expectedBluetoothPeripheralType = expectedBluetoothPeripheralType
         self.dexcomAddConfiguration = dexcomConfiguration
+        self.startLibre3AfterNFC = startLibre3AfterNFC
         self.coreDataManager = coreDataManager
         self.bluetoothPeripheralManager = bluetoothPeripheralManager
         self.sensorProvider = sensorProvider
@@ -117,6 +170,7 @@ final class BluetoothPeripheralDetailState: NSObject, ObservableObject {
         self.presentReadSuccessView = presentReadSuccessView
         self.presentBatteryHistoryView = presentBatteryHistoryView
         self.presentSignalStrengthView = presentSignalStrengthView
+        self.presentLibre3Setup = presentLibre3Setup
         // New Dexcom devices already have their identifier from the setup screen.
         self.transmitterIdTempValue = bluetoothPeripheral?.blePeripheral.transmitterId ?? dexcomConfiguration?.transmitterID
         self.dexcomG6BluetoothSlot = (bluetoothPeripheral as? DexcomG5)?
@@ -125,6 +179,15 @@ final class BluetoothPeripheralDetailState: NSObject, ObservableObject {
             .resolvedDexcomG7BluetoothSlot() ?? dexcomConfiguration?.g7BluetoothSlot ?? .defaultSlot
 
         super.init()
+
+        if expectedBluetoothPeripheralType == .AidexType {
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleAidexScanResults(_:)),
+                name: .aidexDidFinishScanning,
+                object: nil
+            )
+        }
 
         configureTransmitterDelegates()
         refresh()
@@ -143,6 +206,8 @@ final class BluetoothPeripheralDetailState: NSObject, ObservableObject {
             return Texts_M5StackView.m5StickCViewscreenTitle
         case .DexcomType, .DexcomG7Type:
             return dexcomTitle
+        case .Libre3Type:
+            return (bluetoothPeripheral as? Libre3)?.productName ?? expectedBluetoothPeripheralType.bluetoothPeripheralDisplayTitle
         default:
             return expectedBluetoothPeripheralType.bluetoothPeripheralDisplayTitle
         }
@@ -209,6 +274,43 @@ final class BluetoothPeripheralDetailState: NSObject, ObservableObject {
             }
         }
 
+        if startLibre3AfterNFC, expectedBluetoothPeripheralType == .Libre3Type {
+            // Start after navigation has dismissed NFC setup and stopped the previous detail view.
+            // Like Libre 2's NFC completion, this proceeds directly to BLE without another tap.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let manager = self.bluetoothPeripheralManager else { return }
+                // Recovery belongs to the saved sensor, even if its old connection is still active.
+                if let record = try? Libre3CredentialStore().pending(),
+                   let existing = manager.getBluetoothPeripherals().first(where: {
+                       $0.bluetoothPeripheralType() == .Libre3Type &&
+                           $0.blePeripheral.sensorSerialNumber == record.serial
+                   }) {
+                    self.bluetoothPeripheral = existing
+                }
+                guard CBManager.authorization != .denied,
+                      CBManager.authorization != .restricted,
+                      self.canActivateCurrentPeripheral() else {
+                    self.refresh()
+                    return
+                }
+                self.explicitlyStartedScanAt = Date()
+                if let existing = self.bluetoothPeripheral {
+                    // NFC refreshed the PIN and session key. Recreate the transmitter with those
+                    // credentials while retaining the same Core Data peripheral and sensor entry.
+                    manager.setBluetoothTransmitterToNil(forBluetoothPeripheral: existing)
+                    manager.setConnectionEnabled(true, for: existing)
+                    if let transmitter = manager.getBluetoothTransmitter(for: existing, createANewOneIfNecesssary: true) {
+                        transmitter.bluetoothTransmitterDelegate = self
+                        self.configureSpecificDelegate(for: transmitter)
+                        transmitter.connect()
+                    }
+                    self.refresh()
+                } else {
+                    self.scanForBluetoothPeripheral(type: .Libre3Type)
+                }
+            }
+        }
+
         refresh()
     }
 
@@ -221,6 +323,9 @@ final class BluetoothPeripheralDetailState: NSObject, ObservableObject {
     }
 
     func refresh() {
+        // NFC success does not mean Bluetooth access is enabled. Check permission before
+        // showing the connection state, including when returning from iOS Settings.
+        bluetoothAuthorization = CBManager.authorization
         let connectButtonState = makeConnectButtonState()
         let newConnectionStatus = makeConnectionDisplayStatus()
 
@@ -228,12 +333,11 @@ final class BluetoothPeripheralDetailState: NSObject, ObservableObject {
         connectButtonIsEnabled = connectButtonState.isEnabled
         connectButtonIsStopAction = connectButtonState.isStopAction
         connectButtonTintColor = connectButtonState.tintColor
-        // Use a short footer message here. The full explanation is still shown by
-        // the alert guard when activation is attempted from any stale path.
         let activationBlockedMessage = activationBlockedFooterMessageForCurrentPeripheral()
-        statusFooterText = makeStatusFooterText(activationBlockedMessage: activationBlockedMessage)
-        statusFooterSystemImage = makeStatusFooterSystemImage(activationBlockedMessage: activationBlockedMessage)
-        statusFooterIsWarning = activationBlockedMessage != nil
+        // Permission instructions replace the usual footer while Bluetooth access is blocked.
+        statusFooterText = bluetoothAccessIsBlocked ? bluetoothAccessInstructions : makeStatusFooterText(activationBlockedMessage: activationBlockedMessage)
+        statusFooterSystemImage = bluetoothAccessIsBlocked ? nil : makeStatusFooterSystemImage(activationBlockedMessage: activationBlockedMessage)
+        statusFooterIsWarning = !bluetoothAccessIsBlocked && activationBlockedMessage != nil
         updateConnectionWaitStartedAt(for: newConnectionStatus)
         connectionStatus = newConnectionStatus
         category = expectedBluetoothPeripheralType.category()
@@ -540,6 +644,46 @@ final class BluetoothPeripheralDetailState: NSObject, ObservableObject {
             return makeDexcomG5Sections(bluetoothPeripheral: bluetoothPeripheral)
         case .DexcomG7Type:
             return makeDexcomG7Sections(bluetoothPeripheral: bluetoothPeripheral)
+        case .Libre3Type:
+            guard let libre3 = bluetoothPeripheral as? Libre3 else { return [] }
+            let serial = libre3.blePeripheral.sensorSerialNumber ?? ""
+            let saved = try? Libre3CredentialStore().load(serial: serial)
+            let transmitter = bluetoothPeripheralManager?.getBluetoothTransmitter(for: bluetoothPeripheral, createANewOneIfNecesssary: false) as? CGMLibre3Transmitter
+            let sensorStatus = transmitter != nil ? transmitter?.sensorStatus : libre3.status.flatMap { Libre3SensorStatus(storedValue: $0) }
+            var statusDetail = transmitter?.connectionDescription ?? libre3.status.map { TextsLibre3.localized(sensorStatus?.rawValue ?? $0) }
+            if sensorStatus == .warmingUp,
+               let startedAt = libre3.startedAt, libre3.warmupMinutes > 0 {
+                let readyDate = startedAt.addingTimeInterval(Double(libre3.warmupMinutes) * 60)
+                if readyDate > Date() {
+                    statusDetail = Texts_BluetoothPeripheralView.warmingUpUntil + " " + readyDate.toStringInUserLocale(timeStyle: .short, dateStyle: .none)
+                }
+            }
+            return [BluetoothPeripheralDetailSection(id: "libre-3", title: libre3.productName, rows: [
+                row(id: "libre3-start", title: Texts_HomeView.sensorStart, detail: libre3.startedAt?.formatted()),
+                row(id: "libre3-expiry", title: TextsLibre3.localized("Sensor Expiry"), detail: libre3.startedAt?.addingTimeInterval(Double(libre3.wearMinutes) * 60).formatted()),
+                row(id: "libre3-status", title: Texts_Common.sensorStatus, detail: statusDetail,
+                    detailIndicator: libre3.blePeripheral.shouldconnect && statusDetail != nil ? libre3SensorStatusDetailIndicator(for: sensorStatus) : nil),
+                row(id: "libre3-serial", title: Texts_BluetoothPeripheralView.sensorSerialNumber, detail: serial),
+                row(id: "libre3-firmware", title: TextsLibre3.localized("Firmware"), detail: libre3.firmware),
+                row(id: "libre3-receiver", title: TextsLibre3.localized("Receiver ID"),
+                    detail: receiverIDCopiedAt != nil ? TextsLibre3.localized("Copied!") : saved.map { Libre3ReceiverID($0.receiverID).littleEndianHex },
+                    detailSymbol: BluetoothPeripheralDetailSymbol(systemName: "doc.on.doc", color: .yellow, isTrailing: true),
+                    isEnabled: saved != nil,
+                    action: { [weak self] in
+                        guard let self, let saved else { return }
+                        UIPasteboard.general.string = Libre3ReceiverID(saved.receiverID).littleEndianHex
+                        UINotificationFeedbackGenerator().notificationOccurred(.success)
+                        let copiedAt = Date()
+                        self.receiverIDCopiedAt = copiedAt
+                        self.refresh()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                            // A second tap gets its own full two-second confirmation.
+                            guard let self, self.receiverIDCopiedAt == copiedAt else { return }
+                            self.receiverIDCopiedAt = nil
+                            self.refresh()
+                        }
+                    })
+            ])]
         case .Libre2Type:
             return makeLibre2Sections(bluetoothPeripheral: bluetoothPeripheral)
         case .MiaoMiaoType:
@@ -550,6 +694,9 @@ final class BluetoothPeripheralDetailState: NSObject, ObservableObject {
             return makeOttaiSections(bluetoothPeripheral: bluetoothPeripheral)
         case .MedtrumTouchCareNanoType:
             return makeMedtrumTouchCareNanoSections(bluetoothPeripheral: bluetoothPeripheral)
+        case .AidexType:
+            let aidexTx = bluetoothPeripheralManager?.getBluetoothTransmitter(for: bluetoothPeripheral, createANewOneIfNecesssary: false) as? CGMAidexTransmitter
+            return makeAidexSections(bluetoothPeripheral: bluetoothPeripheral, aidexTransmitter: aidexTx)
         case .M5StackType:
             return makeM5StackSections(bluetoothPeripheral: bluetoothPeripheral, includesSpecificM5StackSection: true)
         case .M5StickCType:
@@ -716,7 +863,7 @@ private extension BluetoothPeripheralDetailState {
     /// Otherwise, connecting, reconnecting, and healthy Dexcom waiting are anchored to the
     /// device's last Bluetooth state change so the timer survives ordinary UI refreshes.
     func updateConnectionWaitStartedAt(for connectionStatus: BluetoothPeripheralDisplayStatus) {
-        guard connectionStatus.showsElapsedTime else {
+        guard !bluetoothAccessIsBlocked, connectionStatus.showsElapsedTime else {
             connectionWaitStartedAt = nil
             explicitlyStartedScanAt = nil
             return
@@ -876,6 +1023,12 @@ private extension BluetoothPeripheralDetailState {
     }
 
     func connectButtonHandler() {
+        // Keep first-use scanning available so iOS can ask for Bluetooth permission.
+        // Block denied/restricted access here too, in case an NFC retry calls this directly.
+        guard CBManager.authorization != .denied && CBManager.authorization != .restricted else {
+            refresh()
+            return
+        }
         guard let bluetoothPeripheralManager = bluetoothPeripheralManager else { return }
 
         checkIfNFCScanIsNeeded()
@@ -1136,6 +1289,18 @@ private extension BluetoothPeripheralDetailState {
         cachedTransmitterReadSuccessSummaryIndicatorColor.map { SettingsIndicator(color: $0) }
     }
 
+    func libre3SensorStatusDetailIndicator(for status: Libre3SensorStatus?) -> SettingsIndicator {
+        let indicatorColor: Color
+        switch status?.severity {
+        case .okay: indicatorColor = .green
+        case .warmup: indicatorColor = Color(.systemYellow)
+        case .warning, nil: indicatorColor = Color(.systemOrange)
+        case .error: indicatorColor = Color(.systemRed)
+        case .waiting: indicatorColor = Color(.systemGray)
+        }
+        return SettingsIndicator(color: indicatorColor)
+    }
+
     func sensorStatusDetailIndicator(for sensorStatus: String?) -> SettingsIndicator? {
         guard let sensorStatus = sensorStatus, !sensorStatus.isEmpty else {
             return nil
@@ -1255,6 +1420,15 @@ private extension BluetoothPeripheralDetailState {
         guard bluetoothPeripheral == nil, let bluetoothPeripheralManager = bluetoothPeripheralManager else { return }
         guard !type.needsTransmitterId() || transmitterIdTempValue != nil else { return }
 
+        if type == .Libre3Type {
+            guard !isScanning else { return }
+            // CoreBluetooth can initially return unknown before retrieving a saved sensor.
+            // Show the pending handoff immediately and prevent duplicate transmitter creation.
+            isScanning = true
+            explicitlyStartedScanAt = Date()
+            UIApplication.shared.isIdleTimerDisabled = true
+            refresh()
+        }
         previousScanningResult = nil
 
         // The button tap is the meaningful start of Add CGM. Lower-level scanning callbacks can fire
@@ -1331,19 +1505,34 @@ private extension BluetoothPeripheralDetailState {
 
         previousScanningResult = startScanningResult
 
+        if expectedBluetoothPeripheralType == .Libre3Type {
+            switch startScanningResult {
+            case .poweredOff, .unauthorized, .other:
+                isScanning = false
+                UIApplication.shared.isIdleTimerDisabled = false
+            default: break
+            }
+        }
+
         switch startScanningResult {
         case .success:
             isScanning = true
             explicitlyStartedScanAt = explicitlyStartedScanAt ?? Date()
             UIApplication.shared.isIdleTimerDisabled = true
 
-            if !expectedBluetoothPeripheralType.needsNFCScanToConnect() {
+            if !expectedBluetoothPeripheralType.needsNFCScanToConnect() && !startLibre3AfterNFC {
                 pendingAlert = BluetoothPeripheralDetailAlert(title: Texts_HomeView.info, message: Texts_HomeView.startScanningInfo)
             }
 
         case .alreadyScanning, .alreadyConnected, .connecting:
             trace("in handleScanningResult, scanning not started. Scanning result = %{public}@", log: log, category: ConstantsLog.categoryBluetoothPeripheralViewController, type: .error, startScanningResult.description())
-            isScanning = false
+            // A recovered Libre 3 can retrieve its known peripheral and begin connecting before
+            // startScanning returns. Keep the handoff visible until handleFound adopts that device.
+            isScanning = expectedBluetoothPeripheralType == .Libre3Type && bluetoothPeripheral == nil
+            if isScanning {
+                explicitlyStartedScanAt = explicitlyStartedScanAt ?? Date()
+                UIApplication.shared.isIdleTimerDisabled = true
+            }
 
         case .poweredOff:
             trace("in handleScanningResult, scanning not started. Bluetooth is not on", log: log, category: ConstantsLog.categoryBluetoothPeripheralViewController, type: .error)
@@ -1415,6 +1604,9 @@ private extension BluetoothPeripheralDetailState {
 
         UserDefaults.standard.addObserver(self, forKeyPath: UserDefaults.Key.nfcScanFailed.rawValue, options: .new, context: nil)
         UserDefaults.standard.addObserver(self, forKeyPath: UserDefaults.Key.nfcScanSuccessful.rawValue, options: .new, context: nil)
+        libre3Observer = NotificationCenter.default.addObserver(forName: .libre3StateChanged, object: nil, queue: .main) { [weak self] _ in
+            self?.refresh()
+        }
         didAddObservers = true
     }
 
@@ -1423,6 +1615,8 @@ private extension BluetoothPeripheralDetailState {
 
         UserDefaults.standard.removeObserver(self, forKeyPath: UserDefaults.Key.nfcScanFailed.rawValue)
         UserDefaults.standard.removeObserver(self, forKeyPath: UserDefaults.Key.nfcScanSuccessful.rawValue)
+        if let libre3Observer { NotificationCenter.default.removeObserver(libre3Observer) }
+        libre3Observer = nil
         didAddObservers = false
     }
 
@@ -1556,7 +1750,19 @@ private extension BluetoothPeripheralDetailState {
         }
     }
 
+    func phoneBluetoothSlotIsAvailable(_ slot: UInt8, family: DirectWatchTransmitterFamily) -> Bool {
+        guard let watch = DirectWatchSettings.configuration,
+              watch.transmitterID == transmitterIdTempValue,
+              watch.transmitterFamily == family, watch.slot == slot else { return true }
+        pendingAlert = BluetoothPeripheralDetailAlert(
+            title: Texts_Common.warning,
+            message: TextsDirectWatch.slotConflict
+        )
+        return false
+    }
+
     func setDexcomG6BluetoothSlot(_ slot: DexcomG6BluetoothSlot) {
+        guard phoneBluetoothSlotIsAvailable(slot.rawValue, family: .g6) else { return }
         guard slot != .anubisExperimental || (bluetoothPeripheral as? DexcomG5)?.isAnubis == true else { return }
 
         let previousSlot = dexcomG6BluetoothSlot
@@ -1613,6 +1819,7 @@ private extension BluetoothPeripheralDetailState {
     }
 
     func setDexcomG7BluetoothSlot(_ slot: DexcomG7BluetoothSlot, dexcomG7: DexcomG7?) {
+        guard phoneBluetoothSlotIsAvailable(slot.rawValue, family: .g7) else { return }
         let previousSlot = dexcomG7BluetoothSlot
         guard slot != previousSlot else { return }
 
@@ -1916,6 +2123,7 @@ struct BluetoothPeripheralDetailToggle {
 struct BluetoothPeripheralDetailSymbol {
     let systemName: String
     let color: Color
+    var isTrailing = false
 }
 
 /// Complete presentation state for the connect or stop button.
@@ -2772,6 +2980,100 @@ private extension BluetoothPeripheralDetailState {
             )
         ])
         return rows
+    }
+
+    func makeAidexSections(bluetoothPeripheral: BluetoothPeripheral, aidexTransmitter: CGMAidexTransmitter?) -> [BluetoothPeripheralDetailSection] {
+        guard let aidex = bluetoothPeripheral as? Aidex else { return [] }
+
+        var infoRows: [BluetoothPeripheralDetailRow] = []
+
+        if let fw = aidex.firmwareVersion, !fw.isEmpty {
+            infoRows.append(row(id: "aidex-firmware", title: Texts_Common.firmware, detail: fw))
+        }
+        if let model = aidex.modelName, !model.isEmpty {
+            infoRows.append(row(id: "aidex-model", title: Texts_Common.model, detail: model))
+        }
+
+        // Battery level (from transmitter)
+        if let tx = aidexTransmitter, tx.batteryMillivolts > 0 {
+            let volts = String(format: "%.2f", Double(tx.batteryMillivolts) / 1000.0)
+            infoRows.append(row(id: "aidex-battery", title: "Battery", detail: "\(volts) V"))
+        }
+
+        // Sensor age / remaining (from transmitter)
+        if let tx = aidexTransmitter {
+            let ageHours = tx.sensorAgeHours
+            let remainingHours = tx.sensorRemainingHours
+            if ageHours > 0 {
+                infoRows.append(row(id: "aidex-age", title: "Sensor Age", detail: "\(ageHours)h"))
+            }
+            if remainingHours > 0 {
+                infoRows.append(row(id: "aidex-remaining", title: "Sensor Remaining", detail: "\(remainingHours)h"))
+            }
+        }
+
+        let isConnected = bluetoothPeripheral.blePeripheral.shouldconnect
+        var actionRows: [BluetoothPeripheralDetailRow] = []
+
+        // Reset Sensor (factory reset) — available when connected
+        actionRows.append(row(
+            id: "aidex-reset",
+            title: "Reset Sensor",
+            detail: "Factory reset (CLEAR_STORAGE + unpair). Use before transferring to another phone.",
+            isEnabled: isConnected,
+            action: { [weak self] in
+                self?.pendingAlert = BluetoothPeripheralDetailAlert(
+                    title: "Reset Sensor",
+                    message: "This will factory-reset the sensor (CLEAR_STORAGE + unpair bond). Use this before transferring to another phone. Continue?",
+                    primaryButtonTitle: "Reset",
+                    primaryAction: { [weak self] in
+                        self?.bluetoothPeripheralManager?.aidexResetSensor()
+                        self?.refresh()
+                    },
+                    secondaryButtonTitle: Texts_Common.Cancel
+                )
+            }
+        ))
+
+        // Unpair Sensor — available when connected
+        actionRows.append(row(
+            id: "aidex-unpair",
+            title: "Unpair Sensor",
+            detail: "Remove SMP bond at OS level + clear stored keys.",
+            isEnabled: isConnected,
+            action: { [weak self] in
+                self?.pendingAlert = BluetoothPeripheralDetailAlert(
+                    title: "Unpair Sensor",
+                    message: "This will remove the SMP bond and clear stored keys. The sensor will need re-pairing to reconnect. Continue?",
+                    primaryButtonTitle: "Unpair",
+                    primaryAction: { [weak self] in
+                        self?.bluetoothPeripheralManager?.aidexUnpairSensor()
+                        self?.refresh()
+                    },
+                    secondaryButtonTitle: Texts_Common.Cancel
+                )
+            }
+        ))
+
+        var sections: [BluetoothPeripheralDetailSection] = []
+
+        if !infoRows.isEmpty {
+            sections.append(BluetoothPeripheralDetailSection(
+                id: "aidex-info",
+                title: BluetoothPeripheralType.AidexType.bluetoothPeripheralDisplayTitle,
+                rows: infoRows
+            ))
+        }
+
+        if !actionRows.isEmpty {
+            sections.append(BluetoothPeripheralDetailSection(
+                id: "aidex-actions",
+                title: "Actions",
+                rows: actionRows
+            ))
+        }
+
+        return sections
     }
 }
 
@@ -3722,6 +4024,8 @@ private extension BluetoothPeripheralDetailState {
             cGMMiaoMiaoTransmitter.cGMMiaoMiaoTransmitterDelegate = self
         } else if let cGMBubbleTransmitter = bluetoothTransmitter as? CGMBubbleTransmitter {
             cGMBubbleTransmitter.cGMBubbleTransmitterDelegate = self
+        } else if let cGMAidexTransmitter = bluetoothTransmitter as? CGMAidexTransmitter {
+            cGMAidexTransmitter.cGMAidexTransmitterDelegate = self
         }
     }
 
@@ -3747,6 +4051,8 @@ private extension BluetoothPeripheralDetailState {
             cGMMiaoMiaoTransmitter.cGMMiaoMiaoTransmitterDelegate = bluetoothPeripheralManager as? CGMMiaoMiaoTransmitterDelegate
         } else if let cGMBubbleTransmitter = bluetoothTransmitter as? CGMBubbleTransmitter {
             cGMBubbleTransmitter.cGMBubbleTransmitterDelegate = bluetoothPeripheralManager as? CGMBubbleTransmitterDelegate
+        } else if let cGMAidexTransmitter = bluetoothTransmitter as? CGMAidexTransmitter {
+            cGMAidexTransmitter.cGMAidexTransmitterDelegate = bluetoothPeripheralManager as? CGMAidexTransmitterDelegate
         }
     }
 
@@ -4055,5 +4361,99 @@ extension BluetoothPeripheralDetailState: CGMBubbleTransmitterDelegate {
     func received(libreSensorType: LibreSensorType, from cGMBubbleTransmitter: CGMBubbleTransmitter) {
         (bluetoothPeripheralManager as? CGMBubbleTransmitterDelegate)?.received(libreSensorType: libreSensorType, from: cGMBubbleTransmitter)
         refreshOnMain()
+    }
+}
+
+// MARK: - CGMAidexTransmitterDelegate
+
+extension BluetoothPeripheralDetailState: CGMAidexTransmitterDelegate {
+
+    func received(serialNumber: String, from cGMAidexTransmitter: CGMAidexTransmitter) {
+        (bluetoothPeripheralManager as? CGMAidexTransmitterDelegate)?.received(serialNumber: serialNumber, from: cGMAidexTransmitter)
+    }
+
+    func received(sensorStartTimeMs: Int64, from cGMAidexTransmitter: CGMAidexTransmitter) {
+        (bluetoothPeripheralManager as? CGMAidexTransmitterDelegate)?.received(sensorStartTimeMs: sensorStartTimeMs, from: cGMAidexTransmitter)
+    }
+
+    func received(wearDays: Int, from cGMAidexTransmitter: CGMAidexTransmitter) {
+        (bluetoothPeripheralManager as? CGMAidexTransmitterDelegate)?.received(wearDays: wearDays, from: cGMAidexTransmitter)
+    }
+
+    func received(batteryMillivolts: Int, from cGMAidexTransmitter: CGMAidexTransmitter) {
+        (bluetoothPeripheralManager as? CGMAidexTransmitterDelegate)?.received(batteryMillivolts: batteryMillivolts, from: cGMAidexTransmitter)
+    }
+
+    func aidexNeedsPairing(from cGMAidexTransmitter: CGMAidexTransmitter) {
+        (bluetoothPeripheralManager as? CGMAidexTransmitterDelegate)?.aidexNeedsPairing(from: cGMAidexTransmitter)
+    }
+
+    func received(firmwareVersion: String, from cGMAidexTransmitter: CGMAidexTransmitter) {
+        (bluetoothPeripheralManager as? CGMAidexTransmitterDelegate)?.received(firmwareVersion: firmwareVersion, from: cGMAidexTransmitter)
+        refreshOnMain()
+    }
+
+    func received(modelName: String, from cGMAidexTransmitter: CGMAidexTransmitter) {
+        (bluetoothPeripheralManager as? CGMAidexTransmitterDelegate)?.received(modelName: modelName, from: cGMAidexTransmitter)
+        refreshOnMain()
+    }
+
+    func aidexDidFinishScanning(devices: [DiscoveredAidexSensor], from cGMAidexTransmitter: CGMAidexTransmitter) {
+        (bluetoothPeripheralManager as? CGMAidexTransmitterDelegate)?.aidexDidFinishScanning(devices: devices, from: cGMAidexTransmitter)
+        discoveredAidexDevices = devices
+    }
+
+    func selectAidexDevice(_ discovered: DiscoveredAidexSensor) {
+        discoveredAidexDevices = nil
+        if let bluetoothPeripheral,
+           let transmitter = bluetoothPeripheralManager?
+            .getBluetoothTransmitter(for: bluetoothPeripheral, createANewOneIfNecesssary: false)
+                as? CGMAidexTransmitter {
+            transmitter.connectToDiscoveredDevice(discovered)
+        } else {
+            // For new device scan: use the temp transmitter stored in BluetoothPeripheralManager
+            (bluetoothPeripheralManager as? BluetoothPeripheralManager)?
+                .tempBlueToothTransmitterWhileScanningForNewBluetoothPeripheral
+                .flatMap { ($0 as? CGMAidexTransmitter)?.connectToDiscoveredDevice(discovered) }
+        }
+    }
+
+    func aidexDidConnect(_ sensor: AidexSensor, from cGMAidexTransmitter: CGMAidexTransmitter) {
+        (bluetoothPeripheralManager as? CGMAidexTransmitterDelegate)?.aidexDidConnect(sensor, from: cGMAidexTransmitter)
+    }
+
+    func aidexDidDisconnect(_ sensor: AidexSensor, from cGMAidexTransmitter: CGMAidexTransmitter) {
+        (bluetoothPeripheralManager as? CGMAidexTransmitterDelegate)?.aidexDidDisconnect(sensor, from: cGMAidexTransmitter)
+    }
+
+    func received(snapShot: SensorSnapshot?, from cGMAidexTransmitter: CGMAidexTransmitter) {
+        (bluetoothPeripheralManager as? CGMAidexTransmitterDelegate)?.received(snapShot: snapShot, from: cGMAidexTransmitter)
+    }
+
+    // MARK: - Notification handler
+
+    @objc private func handleAidexScanResults(_ notification: Notification) {
+        trace("AidexUI: handleAidexScanResults fired", log: log, category: ConstantsLog.categoryBluetoothPeripheralViewController, type: .info)
+
+        guard let userInfo = notification.userInfo,
+              let devices = userInfo["devices"] as? [DiscoveredAidexSensor] else {
+            trace("AidexUI: handleAidexScanResults — failed to extract devices from userInfo", log: log, category: ConstantsLog.categoryBluetoothPeripheralViewController, type: .error)
+            return
+        }
+
+        trace("AidexUI: handleAidexScanResults — received %{public}d device(s)", log: log, category: ConstantsLog.categoryBluetoothPeripheralViewController, type: .info, devices.count)
+
+        guard devices.count > 0 else {
+            trace("AidexUI: no Aidex sensors found, showing alert", log: log, category: ConstantsLog.categoryBluetoothPeripheralViewController, type: .info)
+            pendingAlert = BluetoothPeripheralDetailAlert(
+                title: "No Sensors Found",
+                message: "No Aidex sensors were found nearby. Make sure the sensor is active and within range."
+            )
+            refresh()
+            return
+        }
+
+        trace("AidexUI: setting discoveredAidexDevices = %{public}d devices", log: log, category: ConstantsLog.categoryBluetoothPeripheralViewController, type: .info, devices.count)
+        discoveredAidexDevices = devices
     }
 }

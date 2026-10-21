@@ -15,6 +15,7 @@ enum BluetoothPeripheralType: String, CaseIterable {
     
     /// Libre 2
     case Libre2Type = "Libre 2/2+ EU"
+    case Libre3Type = "Libre 3/3 Plus"
     
     /// MiaoMiao
     case MiaoMiaoType = "MiaoMiao"
@@ -41,6 +42,9 @@ enum BluetoothPeripheralType: String, CaseIterable {
     /// Medtrum TouchCare Nano Pump with integrated CGM data relayed by the pump BLE session.
     /// Keep this raw value stable because it is persisted with Bluetooth peripheral records.
     case MedtrumTouchCareNanoType = "Medtrum Nano"
+
+    /// Aidex / Linx / LumiFlex CGM sensor
+    case AidexType = "AiDex/Linx/Lumiflex"
 
     func createNewBluetoothPeripheral(withAddress address: String, withName name: String, nsManagedObjectContext: NSManagedObjectContext) -> BluetoothPeripheral {
         
@@ -69,6 +73,9 @@ enum BluetoothPeripheralType: String, CaseIterable {
         case .MiaoMiaoType:
             return MiaoMiao(address: address, name: name, alias: nil, nsManagedObjectContext: nsManagedObjectContext)
             
+        case .Libre3Type:
+            return Libre3(address: address, name: name, alias: nil, nsManagedObjectContext: nsManagedObjectContext)
+
         case .Libre2Type:
             return Libre2(address: address, name: name, alias: nil, nsManagedObjectContext: nsManagedObjectContext)
             
@@ -87,6 +94,9 @@ enum BluetoothPeripheralType: String, CaseIterable {
         case .MedtrumTouchCareNanoType:
             return MedtrumTouchCareNano(address: address, name: name, alias: nil, nsManagedObjectContext: nsManagedObjectContext)
 
+        case .AidexType:
+            return Aidex(address: address, name: name, alias: nil, nsManagedObjectContext: nsManagedObjectContext)
+
         }
 
     }
@@ -99,7 +109,7 @@ enum BluetoothPeripheralType: String, CaseIterable {
         case .M5StackType, .M5StickCType:
             return .M5Stack
             
-        case .DexcomType, .BubbleType, .MiaoMiaoType, .Libre2Type, .DexcomG7Type, .OttaiType, .MedtrumTouchCareNanoType:
+        case .DexcomType, .BubbleType, .MiaoMiaoType, .Libre2Type, .Libre3Type, .DexcomG7Type, .OttaiType, .MedtrumTouchCareNanoType, .AidexType:
             return .CGM
 
         case .Libre3HeartBeatType, .DexcomG7HeartBeatType, .OmniPodHeartBeatType:

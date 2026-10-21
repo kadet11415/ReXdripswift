@@ -225,4 +225,7 @@ enum ConstantsLog {
     
     /// for use in Omni¨PodHeartBeatTransmitter
     static let categoryHeartBeatOmnipod =                   "HeartBeatOmnipod              "
+
+    /// for use in Aidex CGM transmitter
+    static let categoryAidex =                              "CGMAidex                      "
 }
