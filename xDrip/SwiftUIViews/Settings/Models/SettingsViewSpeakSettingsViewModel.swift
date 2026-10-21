@@ -1,7 +1,6 @@
 import os
 import Foundation
 import SwiftUI
-import AVFoundation
 
 fileprivate enum Setting:Int, CaseIterable {
     
@@ -28,67 +27,6 @@ class SettingsViewSpeakSettingsViewModel: NSObject, SettingsViewModelProtocol {
     /// for trace
     private let log = OSLog(subsystem: ConstantsLog.subSystem, category: ConstantsLog.categorySettingsViewSpeakSettingsViewModel)
     
-    /// Retain the synthesizer for the lifetime of the settings screen.
-    private let previewSynthesizer = AVSpeechSynthesizer()
-
-    /// Audio-session configuration can block while negotiating the output route.
-    private static let previewActivationQueue = DispatchQueue(label: "SpeakGlucose.previewActivation")
-
-    /// Accessed only on main, including while activation is pending.
-    private var previewActivationPending = false
-
-    private let coreDataManager: CoreDataManager?
-
-    init(coreDataManager: CoreDataManager? = nil) {
-        self.coreDataManager = coreDataManager
-        super.init()
-    }
-
-    private func previewRow() -> SettingsRow {
-        SettingsRow(
-            id: "speak.preview",
-            title: Texts_SettingsView.previewSpeakGlucose,
-            icon: SettingsIcon(symbolName: "speaker.wave.2", color: .accentColor),
-            titleColor: .accentColor,
-            accessory: .none,
-            action: .run { [self] in previewGlucose() }
-        )
-    }
-
-    private func previewGlucose() {
-        // Repeated taps must not queue announcements while activating or speaking.
-        guard !previewActivationPending, !previewSynthesizer.isSpeaking else { return }
-        previewActivationPending = true
-        let log = log
-
-        Self.previewActivationQueue.async { [weak self] in
-            let didActivate: Bool
-            do {
-                let session = AVAudioSession.sharedInstance()
-                try session.setCategory(.playback, options: .mixWithOthers)
-                try session.setActive(true)
-                didActivate = true
-            } catch {
-                trace("Could not activate speech preview audio: %{public}@", log: log, category: ConstantsLog.categorySettingsViewSpeakSettingsViewModel, type: .error, error.localizedDescription)
-                didActivate = false
-            }
-
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.previewActivationPending = false
-                guard didActivate else { return }
-
-                // Keep Core Data access and speech synthesis on main.
-                Texts_SpeakReading.setLanguageCode(code: UserDefaults.standard.speakReadingLanguageCode)
-                let utterance = AVSpeechUtterance(string: BGReadingSpeaker.previewText(coreDataManager: self.coreDataManager))
-                utterance.rate = 0.51
-                utterance.pitchMultiplier = 1
-                utterance.voice = AVSpeechSynthesisVoice(language: Texts_SpeakReading.languageCode)
-                self.previewSynthesizer.speak(utterance)
-            }
-        }
-    }
-
     // MARK: - Native SwiftUI rows
 
     func settingsRows(sectionID: Int) -> [SettingsRow] {
@@ -98,15 +36,6 @@ class SettingsViewSpeakSettingsViewModel: NSObject, SettingsViewModelProtocol {
                 id: "speak.speakBgReadingLanguage",
                 index: Setting.speakBgReadingLanguage.rawValue,
                 sectionID: sectionID,
-                isVisible: UserDefaults.standard.speakReadings
-            ),
-            SettingsRow(
-                id: "speak.introduction",
-                title: Texts_SettingsView.labelSpeakIntroduction,
-                control: .toggle(
-                    isOn: { UserDefaults.standard.speakIntroduction },
-                    setIsOn: { UserDefaults.standard.speakIntroduction = $0 }
-                ),
                 isVisible: UserDefaults.standard.speakReadings
             ),
             nativeSettingsRow(
@@ -126,8 +55,7 @@ class SettingsViewSpeakSettingsViewModel: NSObject, SettingsViewModelProtocol {
                 index: Setting.speakInterval.rawValue,
                 sectionID: sectionID,
                 isVisible: UserDefaults.standard.speakReadings
-            ),
-            previewRow()
+            )
         ]
     }
 
@@ -140,7 +68,7 @@ class SettingsViewSpeakSettingsViewModel: NSObject, SettingsViewModelProtocol {
             rows: [
                 SettingsRow(
                     id: "speak.schedule",
-                    title: Texts_Common.enable,
+                    title: Texts_SettingsView.enableSchedule,
                     control: .toggle(
                         isOn: { UserDefaults.standard.speakReadingsScheduleEnabled },
                         setIsOn: { UserDefaults.standard.speakReadingsScheduleEnabled = $0 }
@@ -248,7 +176,7 @@ class SettingsViewSpeakSettingsViewModel: NSObject, SettingsViewModelProtocol {
         
         switch setting {
         case .speakBgReadings:
-            return Texts_Common.enable
+            return Texts_SettingsView.labelSpeakBgReadings
         case .speakBgReadingLanguage:
             return Texts_SettingsView.labelSpeakLanguage
         case .speakTrend:

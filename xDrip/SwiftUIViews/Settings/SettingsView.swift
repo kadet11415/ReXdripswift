@@ -56,7 +56,6 @@ struct SettingsNavigationView: View {
         coreDataManager: CoreDataManager,
         soundPlayer: SoundPlayer,
         selectedFollowerActions: SelectedFollowerActions,
-        dexcomShareUploadActions: DexcomShareUploadActions,
         incomingBackupRequest: IncomingBackupRequest?,
         consumeIncomingBackup: @escaping (UUID) -> Void
     ) {
@@ -65,7 +64,6 @@ struct SettingsNavigationView: View {
         let sections = SettingsListFactory.makeRootSections(
             coreDataManager: coreDataManager,
             selectedFollowerActions: selectedFollowerActions,
-            dexcomShareUploadActions: dexcomShareUploadActions,
             presenter: presenter
         )
 
@@ -158,6 +156,7 @@ struct SettingsNavigationView: View {
             AlertTypeEditorView(
                 alertType: alertType,
                 coreDataManager: coreDataManager,
+                soundPlayer: soundPlayer,
                 close: {
                     router.closeCurrentView()
                     listViewModel.reload()
@@ -535,8 +534,7 @@ enum SettingsRootSection: Int, CaseIterable, SettingsProtocol {
 
     func viewModel(
         coreDataManager: CoreDataManager?,
-        selectedFollowerActions: SelectedFollowerActions = .none,
-        dexcomShareUploadActions: DexcomShareUploadActions = .none
+        selectedFollowerActions: SelectedFollowerActions = .none
     ) -> SettingsViewModelProtocol {
         switch self {
         case .dataSource:
@@ -549,7 +547,7 @@ enum SettingsRootSection: Int, CaseIterable, SettingsProtocol {
         case .alertsAndNotifications:
             return SettingsViewGroupedSettingsViewModel.alertsAndNotifications()
         case .sharingAndServices:
-            return SettingsViewGroupedSettingsViewModel.sharingAndServices(dexcomShareUploadActions: dexcomShareUploadActions, coreDataManager: coreDataManager)
+            return SettingsViewGroupedSettingsViewModel.sharingAndServices()
         case .dataManagement:
             return SettingsViewDataManagementSettingsViewModel(coreDataManager: coreDataManager)
         case .troubleshooting:
@@ -580,10 +578,8 @@ struct SettingsViewGroupedSettingsViewModel: SettingsViewModelProtocol, Settings
     private let title: String
     private let rows: [SettingsGroupedRow]
     private let leadingRows: () -> [SettingsRow]
-    private let uploadRefresh: DexcomShareUploadSettingsRefresh?
 
-    init(title: String, rows: [SettingsGroupedRow], leadingRows: @escaping () -> [SettingsRow] = { [] }, uploadRefreshState: DexcomShareUploadState? = nil, uploadDefaults: UserDefaults = .standard) {
-        uploadRefresh = uploadRefreshState.map { DexcomShareUploadSettingsRefresh(state: $0, defaults: uploadDefaults) }
+    init(title: String, rows: [SettingsGroupedRow], leadingRows: @escaping () -> [SettingsRow] = { [] }) {
         self.title = title
         self.rows = rows.filter(\.isVisible)
         self.leadingRows = leadingRows
@@ -706,7 +702,7 @@ struct SettingsViewGroupedSettingsViewModel: SettingsViewModelProtocol, Settings
         )
     }
 
-    static func sharingAndServices(dexcomShareUploadActions: DexcomShareUploadActions = .none, uploadDefaults: UserDefaults = .standard, coreDataManager: CoreDataManager? = nil) -> SettingsViewGroupedSettingsViewModel {
+    static func sharingAndServices() -> SettingsViewGroupedSettingsViewModel {
         SettingsViewGroupedSettingsViewModel(
             title: Texts_SettingsView.sharingAndServicesSectionTitle,
             rows: [
@@ -738,21 +734,13 @@ struct SettingsViewGroupedSettingsViewModel: SettingsViewModelProtocol, Settings
                     id: "sharingServices.dexcomShare",
                     title: Texts_SettingsView.sectionTitleDexcomShareUpload,
                     detail: {
-                        guard uploadDefaults.uploadReadingstoDexcomShare else { return nil }
-                        return Texts_Common.enabled
-                    },
-                    detailIndicator: {
-                        DexcomShareUploadPresentation.resolve(defaults: uploadDefaults, state: dexcomShareUploadActions.state).indicator
+                        groupedStatusDetail(isEnabled: UserDefaults.standard.uploadReadingstoDexcomShare)
                     },
                     settingsScreen: {
                         SettingsScreen(
                             title: Texts_SettingsView.sectionTitleDexcomShareUpload,
                             onlineHelpTopic: .dexcomShareService,
-                            providers: {
-                                DexcomShareUploadRowGroup.allCases.map {
-                                    SettingsViewDexcomShareUploadSettingsViewModel(rowGroup: $0, actions: dexcomShareUploadActions, defaults: uploadDefaults)
-                                }
-                            }
+                            providers: { [SettingsViewDexcomShareUploadSettingsViewModel()] }
                         )
                     }
                 ),
@@ -850,8 +838,7 @@ struct SettingsViewGroupedSettingsViewModel: SettingsViewModelProtocol, Settings
                             title: Texts_SettingsView.sectionTitleSpeak,
                             onlineHelpTopic: .speakGlucose,
                             makeSections: { presenter in
-                                let viewModel = SettingsViewSpeakSettingsViewModel(coreDataManager: coreDataManager)
-                                return SettingsListFactory.makeSections(providers: [viewModel], presenter: presenter)
+                                SettingsListFactory.makeSections(providers: [SettingsViewSpeakSettingsViewModel()], presenter: presenter)
                                     + [SettingsSectionModel(id: 1) { SettingsViewSpeakSettingsViewModel.scheduleSection() }]
                             }
                         )
@@ -866,8 +853,7 @@ struct SettingsViewGroupedSettingsViewModel: SettingsViewModelProtocol, Settings
                         }
                     }
                 )
-            ],
-            uploadRefreshState: dexcomShareUploadActions.state, uploadDefaults: uploadDefaults
+            ]
         )
     }
 
@@ -982,10 +968,6 @@ struct SettingsViewGroupedSettingsViewModel: SettingsViewModelProtocol, Settings
     func storeMessageHandler(messageHandler: @escaping ((String, String) -> Void)) {}
 
 
-    func storeSectionReloadClosure(sectionReloadClosure: @escaping () -> Void) {
-        uploadRefresh?.reload = sectionReloadClosure
-    }
-
     func storeRowReloadClosure(rowReloadClosure: @escaping ((Int) -> Void)) {}
 }
 
@@ -995,14 +977,12 @@ enum SettingsListFactory {
     static func makeRootSections(
         coreDataManager: CoreDataManager?,
         selectedFollowerActions: SelectedFollowerActions,
-        dexcomShareUploadActions: DexcomShareUploadActions = .none,
         presenter: SettingsActionPresenter
     ) -> [SettingsSectionModel] {
         SettingsRootSection.allCases.flatMap { section -> [SettingsSectionModel] in
             let viewModel = section.viewModel(
                 coreDataManager: coreDataManager,
-                selectedFollowerActions: selectedFollowerActions,
-                dexcomShareUploadActions: dexcomShareUploadActions
+                selectedFollowerActions: selectedFollowerActions
             )
 
             configure(viewModel: viewModel, presenter: presenter)

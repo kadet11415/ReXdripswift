@@ -342,9 +342,10 @@ struct AIDStatusView: View {
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    SheetCloseButton {
+                    Button(Texts_Common.Cancel, action: {
                         self.presentationMode.wrappedValue.dismiss()
-                    }
+                    })
+                    .foregroundStyle(ConstantsAppColors.toolbarNeutralAction)
                 }
             }
             .onReceive(timer, perform: { _ in

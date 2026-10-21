@@ -31,6 +31,7 @@
 "alerttypesettingsview_sound" = "Sound";
 
 /// when editing an alert type, field title for Enabled
+"alerttypesettingsview_enabled" = "Enabled";
 
 /// 
 "alertTypeNoSound" = "No Sound";
@@ -49,6 +50,3 @@
 
 /// when editing an alert type, field title for Vibrate
 "alerttypesettingsview_vibrate" = "Vibrate";
-
-"alerttypesettingsview_repeatsound" = "Ripeti suono";
-"alerttypesettingsview_previewalert" = "Anteprima allarme";

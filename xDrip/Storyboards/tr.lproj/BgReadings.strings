@@ -44,10 +44,3 @@
 "bgRangeUrgent" = "Acil";
 "bgRangeNotUrgent" = "Acil değil";
 "bgRangeInRange" = "Aralıkta";
-
-"alsoCollectedByWatch" = "Watch tarafından da toplandı";
-
-// Direct to Watch setup and diagnosis
-"receivedViaWatchAtFooterFormat" = "Watch üzerinden %@ saatinde alındı";
-"backfilledViaWatchAtFooterFormat" = "Watch üzerinden %@ saatinde tamamlandı";
-"receivedViaWatch" = "Watch üzerinden alındı";

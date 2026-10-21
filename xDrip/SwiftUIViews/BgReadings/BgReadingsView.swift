@@ -8,7 +8,6 @@
 
 import SwiftUI
 import OSLog
-import CoreData
 
 struct BgReadingsView: View {
     // MARK: - environment objects
@@ -92,9 +91,7 @@ struct BgReadingsView: View {
 
                 List(selection: $selectedBgReadings) {
                     if !filteredBgReadings.isEmpty {
-                        // Values/provenance can update while this list is open. Keep the row's
-                        // identity tied to the stored reading so confirmation does not pop its detail view.
-                        ForEach(filteredBgReadings, id: \.objectID) { bgReading in
+                        ForEach(filteredBgReadings, id: \.self) { bgReading in
                             NavigationLink(destination: BgReadingsDetailView(bgReading: bgReading)) {
                                 HStack {
                                     Image(systemName: "circle.fill")
@@ -114,17 +111,7 @@ struct BgReadingsView: View {
                                     Spacer()
 
                                     HStack {
-                                        if bgReading.backfilledAt != nil {
-                                            BackfilledReadingIndicatorDot()
-                                        } else if !bgReading.valueIsFromWatch {
-                                            BackfilledReadingIndicatorDot(isVisible: false)
-                                        }
-                                        if bgReading.valueIsFromWatch {
-                                            WatchReadingIndicator(size: 14, color: Color(.colorSecondary))
-                                        } else if bgReading.wasAlsoCollectedByWatch {
-                                            WatchReadingIndicator(size: 14, color: Color(.colorTertiary),
-                                                                  accessibilityText: Texts_BgReadings.alsoCollectedByWatch)
-                                        }
+                                        BackfilledReadingIndicatorDot(isVisible: bgReading.backfilledAt != nil)
 
                                         Text(bgReading.timeStamp.toStringInUserLocale(timeStyle: .short, dateStyle: .none))
                                             .foregroundColor(.secondary)
@@ -186,9 +173,10 @@ struct BgReadingsView: View {
             })
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    SheetCloseButton {
+                    Button(Texts_Common.Cancel, action: {
                         self.presentationMode.wrappedValue.dismiss()
-                    }
+                    })
+                    .foregroundStyle(ConstantsAppColors.toolbarNeutralAction)
                 }
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
                     OnlineHelpButton(topic: .glucoseReadings)
@@ -212,18 +200,12 @@ struct BgReadingsView: View {
         .onAppear() {
             initializeView()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .NSManagedObjectContextDidSave).receive(on: RunLoop.main)) { notification in
-            let changed = (notification.userInfo?[NSUpdatedObjectsKey] as? Set<NSManagedObject> ?? [])
-                .union(notification.userInfo?[NSInsertedObjectsKey] as? Set<NSManagedObject> ?? [])
-            if changed.contains(where: { $0 is BgReading }) { initializeView() }
-        }
     }
     
     // MARK: - private functions
     
     /// this is called when the view appears. It will pull BG readings from coredata
     private func initializeView() {
-        let selectedIDs = Set(selectedBgReadings.map(\.objectID))
         // set the fromDate to be midnight 'numberOfDaysOfBgReadingsToShow' days before the current date
         if let fromDate: Date = Calendar.current.date(byAdding: .day, value: -numberOfDaysOfBgReadingsToShow, to: dateSelected)?.toMidnight() {
             
@@ -232,7 +214,6 @@ struct BgReadingsView: View {
             
             // create a filtered array to only show bg readings for the date selected
             filteredBgReadings = bgReadings.filter { Calendar.current.compare($0.timeStamp, to: dateSelected, toGranularity: .day) == .orderedSame}
-            selectedBgReadings = Set(filteredBgReadings.filter { selectedIDs.contains($0.objectID) })
             
             // update the day name in the user language for the newly selected date
             updateDayName(date: dateSelected)
@@ -393,18 +374,5 @@ struct BackfilledReadingIndicatorDot: View {
             .accessibilityLabel(Texts_BgReadings.backfilled)
             .accessibilityHidden(!isVisible)
             .frame(width: ConstantsUI.backfilledReadingIndicatorDotSize, height: ConstantsUI.backfilledReadingIndicatorDotSize)
-    }
-}
-
-struct WatchReadingIndicator: View {
-    var size: CGFloat = 11
-    var color: Color = .secondary
-    var accessibilityText: String = Texts_BgReadings.receivedViaWatch
-
-    var body: some View {
-        Image(systemName: "applewatch")
-            .font(.system(size: size))
-            .foregroundStyle(color)
-            .accessibilityLabel(accessibilityText)
     }
 }

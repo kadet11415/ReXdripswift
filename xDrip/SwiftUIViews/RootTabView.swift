@@ -96,7 +96,6 @@ struct RootTabDependencies {
     let submitCalibration: (CalibrationSubmission) -> String?
     let updateScreenLock: (Bool, Bool) -> Bool
     let selectedFollowerActions: SelectedFollowerActions
-    let dexcomShareUploadActions: DexcomShareUploadActions
 
     /// Cancels either screen-lock mode without accidentally enabling it when it is already off.
     func cancelScreenLock() {
@@ -290,7 +289,6 @@ struct RootTabDependencies {
         submitCalibration: @escaping (CalibrationSubmission) -> String?,
         updateScreenLock: @escaping (Bool, Bool) -> Bool,
         selectedFollowerActions: SelectedFollowerActions,
-        dexcomShareUploadActions: DexcomShareUploadActions,
         sensorProvider: ActiveSensorProviding
     ) {
         self.sensorProvider = sensorProvider
@@ -315,8 +313,7 @@ struct RootTabDependencies {
             stopSensor: stopSensor,
             submitCalibration: submitCalibration,
             updateScreenLock: updateScreenLock,
-            selectedFollowerActions: selectedFollowerActions,
-            dexcomShareUploadActions: dexcomShareUploadActions
+            selectedFollowerActions: selectedFollowerActions
         )
     }
 }
@@ -554,7 +551,6 @@ struct RootTabView: View {
                             coreDataManager: dependencies.coreDataManager,
                             soundPlayer: dependencies.soundPlayer,
                             selectedFollowerActions: dependencies.selectedFollowerActions,
-                            dexcomShareUploadActions: dependencies.dexcomShareUploadActions,
                             incomingBackupRequest: stateModel.incomingBackupRequest,
                             consumeIncomingBackup: stateModel.consumeIncomingBackup
                         )

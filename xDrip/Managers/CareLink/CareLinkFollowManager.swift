@@ -152,6 +152,9 @@ final class CareLinkFollowManager: NSObject, CareLinkControlling {
     private var invalidationTask: Task<Void, Never>?
     private var invalidationIdentifier: UUID?
     private var failureCount = 0
+    /// A payload-proven device/server offset can safely normalize a later response that omits its
+    /// device clock. Patient identity prevents one linked account from influencing another.
+    private var retainedDeviceOffsets: [String: TimeInterval] = [:]
 
     /// Creates the long-lived manager and immediately evaluates the current follower selection.
     init(
@@ -629,14 +632,12 @@ final class CareLinkFollowManager: NSObject, CareLinkControlling {
             let refreshedAt = await client.tokenRefreshDate()
             var parsed = try CareLinkGlucoseParser.readings(
                 from: response.0,
-                retainedDeviceOffset: UserDefaults.standard.careLinkDeviceOffset(
-                    region: currentRegion, account: account.metadata.accountName, patientID: patient.id
-                )
+                retainedDeviceOffset: retainedDeviceOffsets[patient.id]
             )
             let therapy = try CareLinkTherapyParser.payload(from: response.0, patientID: patient.id)
             let parseDiagnostics = parsed.diagnostics
             trace(
-                "CareLink glucose parse candidates=%{public}d accepted=%{public}d invalid=%{public}d missingTime=%{public}d unknownClock=%{public}d future=%{public}d expired=%{public}d duplicates=%{public}d lastSG=%{public}@ clock=%{public}@ offsetMinutes=%{public}@",
+                "CareLink glucose parse candidates=%{public}d accepted=%{public}d invalid=%{public}d missingTime=%{public}d future=%{public}d expired=%{public}d duplicates=%{public}d lastSG=%{public}@ clock=%{public}@ offsetMinutes=%{public}@",
                 log: log,
                 category: ConstantsLog.categoryCareLinkFollowManager,
                 type: .info,
@@ -644,7 +645,6 @@ final class CareLinkFollowManager: NSObject, CareLinkControlling {
                 parseDiagnostics.acceptedCount,
                 parseDiagnostics.invalidValueCount,
                 parseDiagnostics.missingTimestampCount,
-                parseDiagnostics.unknownClockCount,
                 parseDiagnostics.futureTimestampCount,
                 parseDiagnostics.expiredTimestampCount,
                 parseDiagnostics.duplicateTimestampCount,
@@ -652,12 +652,11 @@ final class CareLinkFollowManager: NSObject, CareLinkControlling {
                 parseDiagnostics.clockSource.rawValue,
                 parseDiagnostics.offsetMinutes.map(String.init) ?? "unavailable"
             )
-            // Keep the last proven clock across launches, including responses with no glucose.
-            // Missing clock information leaves the saved offset unchanged.
-            UserDefaults.standard.storeCareLinkDeviceOffset(
-                parsed.payloadDeviceOffset, region: currentRegion,
-                account: account.metadata.accountName, patientID: patient.id
-            )
+            // Cache only an offset proven by this payload and a valid glucose result. A retained
+            // fallback is deliberately unable to renew itself indefinitely.
+            if !parsed.readings.isEmpty, let payloadDeviceOffset = parsed.payloadDeviceOffset {
+                retainedDeviceOffsets[patient.id] = payloadDeviceOffset
+            }
             parsed.metadata.accountName = account.metadata.accountName
             parsed.metadata.role = account.metadata.role
             parsed.metadata.countryCode = account.metadata.countryCode

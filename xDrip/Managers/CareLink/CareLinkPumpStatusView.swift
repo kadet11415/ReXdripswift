@@ -38,9 +38,8 @@ struct CareLinkPumpStatusView: View {
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    SheetCloseButton {
-                        dismiss()
-                    }
+                    Button(Texts_Common.Cancel) { dismiss() }
+                        .foregroundStyle(ConstantsAppColors.toolbarNeutralAction)
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(Texts_SettingsView.followerRefresh) { state.refresh() }

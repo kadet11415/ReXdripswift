@@ -12,8 +12,8 @@ import SwiftUI
 
 /// The time window displayed by the battery-history chart.
 ///
-/// Fixed ranges run backwards from now for enabled devices or the last reading for inactive devices.
-/// Before the recorded lifetime reaches the next fixed width, it replaces that option in the picker.
+/// Fixed ranges always run backwards from the current time. Before a device reaches the next fixed
+/// width, its actual recorded lifetime occupies that position so the picker never offers empty time.
 enum BatteryHistoryRange: Hashable, Identifiable {
     case days(Int)
     case lifetime(TimeInterval)
@@ -43,8 +43,8 @@ enum BatteryHistoryRange: Hashable, Identifiable {
         }
     }
 
-    static func available(firstObservation: Date, endDate: Date) -> [BatteryHistoryRange] {
-        let lifetime = max(0, endDate.timeIntervalSince(firstObservation))
+    static func available(firstObservation: Date, now: Date) -> [BatteryHistoryRange] {
+        let lifetime = max(0, now.timeIntervalSince(firstObservation))
         var ranges = [BatteryHistoryRange]()
         for days in [3, 7, 12] where lifetime >= TimeInterval(days: Double(days)) {
             ranges.append(.days(days))
@@ -63,13 +63,13 @@ enum BatteryHistoryRange: Hashable, Identifiable {
         return ranges
     }
 
-    func domain(endDate: Date) -> ClosedRange<Date> {
+    func domain(now: Date) -> ClosedRange<Date> {
         let duration: TimeInterval
         switch self {
         case .days(let days): duration = TimeInterval(days: Double(days))
         case .lifetime(let lifetime): duration = max(6 * 3600, lifetime)
         }
-        return endDate.addingTimeInterval(-duration) ... endDate
+        return now.addingTimeInterval(-duration) ... now
     }
 }
 
@@ -168,25 +168,6 @@ struct BatteryHistoryView: View {
                     }
                 }
 
-                if isHistorical {
-                    Section {
-                        HStack(spacing: 10) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.system(size: 20, weight: .semibold))
-                                .foregroundStyle(ConstantsUI.warningBannerIndicatorColor)
-                                .frame(width: 24)
-                                .accessibilityHidden(true)
-
-                            Text(Texts_BluetoothPeripheralView.batteryHistoryInactive)
-                                .foregroundStyle(Color(.colorPrimary))
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 3)
-                        .listRowInsets(ConstantsUI.bluetoothPeripheralStatusBannerRowInsets)
-                    }
-                }
-
                 Section {
                     if points.isEmpty {
                         VStack(spacing: 10) {
@@ -208,11 +189,8 @@ struct BatteryHistoryView: View {
                     }
                 } header: {
                     Text(Texts_BluetoothPeripheralView.batteryHistory)
-                } footer: {
                     if !points.isEmpty {
-                        Text(isHistorical
-                             ? Texts_BluetoothPeripheralView.batteryHistoryHistoricalRangeExplanation
-                             : Texts_BluetoothPeripheralView.batteryHistoryRangeExplanation)
+                        Text(Texts_BluetoothPeripheralView.batteryHistoryRangeExplanation)
                     }
                 }
             }
@@ -229,16 +207,9 @@ struct BatteryHistoryView: View {
         }
     }
 
-    private var chartEndDate: Date { information?.chartEndDate ?? now }
-
-    // Historical styling follows the saved enabled state, not the age of the selected reading.
-    private var isHistorical: Bool { information?.isEnabled == false && !points.isEmpty }
-
-    private var timestampColor: Color { isHistorical ? .red : Color(.colorSecondary) }
-
     private var availableRanges: [BatteryHistoryRange] {
         guard let first = points.first?.observedAt else { return [] }
-        return BatteryHistoryRange.available(firstObservation: first, endDate: chartEndDate)
+        return BatteryHistoryRange.available(firstObservation: first, now: now)
     }
 
     private func batteryHistoryChart(availableHeight: CGFloat) -> some View {
@@ -246,7 +217,7 @@ struct BatteryHistoryView: View {
             if let activeChartPoint {
                 HStack(alignment: .firstTextBaseline) {
                     Text(activeChartPoint.observedAt.formatted(date: .abbreviated, time: .shortened))
-                        .foregroundStyle(timestampColor)
+                        .foregroundStyle(Color(.colorSecondary))
 
                     Spacer(minLength: 8)
 
@@ -329,7 +300,7 @@ struct BatteryHistoryView: View {
     }
 
     private var visiblePoints: [BatteryHistoryPoint] {
-        let domain = effectiveRange.domain(endDate: chartEndDate)
+        let domain = effectiveRange.domain(now: now)
         return points.filter { domain.contains($0.observedAt) }
     }
 
@@ -355,7 +326,7 @@ struct BatteryHistoryView: View {
     }
 
     @ViewBuilder private var chart: some View {
-        let domain = effectiveRange.domain(endDate: chartEndDate)
+        let domain = effectiveRange.domain(now: now)
         let xAxis = BatteryHistoryXAxis(domain: domain)
         let latest = points.last
         let isPercentage = latest?.kind == .percentage
@@ -459,7 +430,7 @@ struct BatteryHistoryView: View {
                     AxisValueLabel(anchor: xAxis.labelAnchor(for: date), collisionResolution: .disabled) {
                         Text(xAxis.label(for: date))
                             .font(.caption2.monospacedDigit())
-                            .foregroundStyle(timestampColor)
+                            .foregroundStyle(Color(.colorSecondary))
                             .fixedSize()
                     }
                 }
@@ -507,11 +478,7 @@ struct BatteryHistoryView: View {
         now = Date()
         points = manager.history(peripheralObjectID: peripheralObjectID)
         selectedPoint = nil
-        information = manager.information(
-            peripheralObjectID: peripheralObjectID,
-            now: now,
-            lastObservation: points.last?.observedAt
-        )
+        information = manager.information(peripheralObjectID: peripheralObjectID, now: now)
         if selectedRange == nil { selectedRange = availableRanges.last }
     }
 }

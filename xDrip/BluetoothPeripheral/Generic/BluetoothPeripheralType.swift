@@ -15,7 +15,6 @@ enum BluetoothPeripheralType: String, CaseIterable {
     
     /// Libre 2
     case Libre2Type = "Libre 2/2+ EU"
-    case Libre3Type = "Libre 3/3 Plus"
     
     /// MiaoMiao
     case MiaoMiaoType = "MiaoMiao"
@@ -67,9 +66,6 @@ enum BluetoothPeripheralType: String, CaseIterable {
         case .MiaoMiaoType:
             return MiaoMiao(address: address, name: name, alias: nil, nsManagedObjectContext: nsManagedObjectContext)
             
-        case .Libre3Type:
-            return Libre3(address: address, name: name, alias: nil, nsManagedObjectContext: nsManagedObjectContext)
-
         case .Libre2Type:
             return Libre2(address: address, name: name, alias: nil, nsManagedObjectContext: nsManagedObjectContext)
             
@@ -103,7 +99,7 @@ enum BluetoothPeripheralType: String, CaseIterable {
         case .M5StackType, .M5StickCType:
             return .M5Stack
             
-        case .DexcomType, .BubbleType, .MiaoMiaoType, .Libre2Type, .Libre3Type, .DexcomG7Type, .MedtrumTouchCareNanoType, .AidexType:
+        case .DexcomType, .BubbleType, .MiaoMiaoType, .Libre2Type, .DexcomG7Type, .MedtrumTouchCareNanoType, .AidexType:
             return .CGM
 
         case .Libre3HeartBeatType, .DexcomG7HeartBeatType, .OmniPodHeartBeatType:

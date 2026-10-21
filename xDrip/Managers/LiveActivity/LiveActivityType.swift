@@ -8,17 +8,19 @@
 
 import Foundation
 
-/// selected live activity style; Disabled is retained for older stored values and activity payloads
+/// type of live activity to be shown, if any
 public enum LiveActivityType: Int, CaseIterable, Codable {
     
-    // show only styles in the picker; enablement is handled by its own switch
+    // override the allCases property to define our own order.
+    // this must then be handled with the forRowAt options
     public static var allCasesForList: [LiveActivityType] {
-        return [.minimal, .normal, .large]
+        return [.disabled, .minimal, .normal, .large]
     }
     
-    // keep the raw values stable because they are stored in UserDefaults and encoded in activity payloads
+    // when adding to LiveActivityType, add new cases at the end (ie 3, ...)
+    // if this is done in the middle then a database migration would be required, because the rawvalue is stored as Int16 in the coredata
     
-    case disabled = 0 // retained for compatibility; no longer a selectable style
+    case disabled = 0 // default upon initialization
     case normal = 1
     case minimal = 2
     case large = 3
@@ -26,7 +28,7 @@ public enum LiveActivityType: Int, CaseIterable, Codable {
     var description: String {
         switch self {
         case .disabled:
-            return debugDescription // Disabled is now only used for diagnostics and legacy values
+            return Texts_SettingsView.liveActivityTypeDisabled
         case .normal:
             return Texts_SettingsView.liveActivityTypeNormal
         case .minimal:
@@ -48,6 +50,23 @@ public enum LiveActivityType: Int, CaseIterable, Codable {
             return "Large"
         }
     }
+    
+    /// this is used for presentation in list. It allows to order the types in the view, different than they case ordering, and so allows to add new cases
+    init?(forRowAt row: Int) {
+        switch row {
+        case 0:
+            self = .disabled
+        case 1:
+            self = .minimal
+        case 2:
+            self = .normal
+        case 3:
+            self = .large
+        default:
+            fatalError("in liveActivityType initializer init(forRowAt row: Int), there's no case for the rownumber")
+        }
+    }
+    
 }
 
 /// Layout used by the small supplemental Live Activity family in CarPlay and Apple Watch.

@@ -484,7 +484,7 @@ public final class StatisticsManager: @unchecked Sendable {
         }
 
         let averageStatisticValue = filteredValues.reduce(0, +) / Double(filteredValues.count)
-        // Both estimates share the report sample population; only legacy average/CV retain the extra filter.
+        // GMI shares the report sample population; only legacy average/CV retain the extra filter.
         let averageMgDl = samples.reduce(0) { $0 + $1.valueMgDl } / Double(samples.count)
         let gmiPercentage = GlucoseReportClinicalMath.gmiPercentage(forAverageMgDl: averageMgDl)
         let cVStatisticValue = Self.coefficientOfVariation(values: filteredValues, average: averageStatisticValue)
@@ -503,8 +503,7 @@ public final class StatisticsManager: @unchecked Sendable {
             cVStatisticValue: cVStatisticValue,
             lowLimitForTIR: lowLimitForTIR,
             highLimitForTIR: highLimitForTIR,
-            numberOfDaysUsed: numberOfDaysUsed,
-            estimatedHbA1cPercentage: GlucoseReportClinicalMath.estimatedHbA1cPercentage(forAverageMgDl: averageMgDl)
+            numberOfDaysUsed: numberOfDaysUsed
         )
     }
 
@@ -523,10 +522,10 @@ public final class StatisticsManager: @unchecked Sendable {
         while day <= endDay {
             let daySamples = grouped[day] ?? []
             let values = filteredRootStatisticValues(samples: daySamples, isMgDl: isMgDl)
-            let averageMgDl = daySamples.isEmpty ? 0 : daySamples.reduce(0) { $0 + $1.valueMgDl } / Double(daySamples.count)
             statisticsByDay[day] = makeStatisticsForDay(
                 values: values,
-                averageMgDl: averageMgDl,
+                gmiPercentage: daySamples.isEmpty ? 0 : GlucoseReportClinicalMath.gmiPercentage(
+                    forAverageMgDl: daySamples.reduce(0) { $0 + $1.valueMgDl } / Double(daySamples.count)),
                 lowLimitForTIR: lowLimitForTIR,
                 highLimitForTIR: highLimitForTIR
             )
@@ -538,7 +537,7 @@ public final class StatisticsManager: @unchecked Sendable {
         return statisticsByDay
     }
 
-    private func makeStatisticsForDay(values: [Double], averageMgDl: Double, lowLimitForTIR: Double, highLimitForTIR: Double) -> Statistics {
+    private func makeStatisticsForDay(values: [Double], gmiPercentage: Double, lowLimitForTIR: Double, highLimitForTIR: Double) -> Statistics {
         guard !values.isEmpty else {
             return Statistics(
                 lowStatisticValue: 0,
@@ -565,12 +564,11 @@ public final class StatisticsManager: @unchecked Sendable {
             highStatisticValue: rangeDistribution.abovePercentage,
             inRangeStatisticValue: rangeDistribution.inRangePercentage,
             averageStatisticValue: averageStatisticValue,
-            gmiPercentage: GlucoseReportClinicalMath.gmiPercentage(forAverageMgDl: averageMgDl),
+            gmiPercentage: gmiPercentage,
             cVStatisticValue: Self.coefficientOfVariation(values: values, average: averageStatisticValue),
             lowLimitForTIR: lowLimitForTIR,
             highLimitForTIR: highLimitForTIR,
-            numberOfDaysUsed: 1,
-            estimatedHbA1cPercentage: GlucoseReportClinicalMath.estimatedHbA1cPercentage(forAverageMgDl: averageMgDl)
+            numberOfDaysUsed: 1
         )
     }
 
@@ -1670,6 +1668,5 @@ public final class StatisticsManager: @unchecked Sendable {
         var lowLimitForTIR: Double
         var highLimitForTIR: Double
         var numberOfDaysUsed: Int
-        var estimatedHbA1cPercentage: Double = 0
     }
 }

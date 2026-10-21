@@ -109,15 +109,11 @@ struct BluetoothPeripheralsNavigationView: View {
                 onSelect: entry.onSelect
             )
 
-        case .libre3Setup(let serial):
-            Libre3SetupView(router: router, recoverySerial: serial)
-
-        case let .peripheral(bluetoothPeripheral, bluetoothPeripheralType, dexcomConfiguration, startLibre3AfterNFC):
+        case let .peripheral(bluetoothPeripheral, bluetoothPeripheralType, dexcomConfiguration):
             BluetoothPeripheralDetailContainerView(
                 bluetoothPeripheral: bluetoothPeripheral,
                 bluetoothPeripheralType: bluetoothPeripheralType,
                 dexcomConfiguration: dexcomConfiguration,
-                startLibre3AfterNFC: startLibre3AfterNFC,
                 coreDataManager: coreDataManager,
                 bluetoothPeripheralManager: bluetoothPeripheralManager,
                 sensorProvider: sensorProvider,
@@ -185,7 +181,6 @@ private struct BluetoothPeripheralDetailContainerView: View {
         bluetoothPeripheral: BluetoothPeripheral?,
         bluetoothPeripheralType: BluetoothPeripheralType,
         dexcomConfiguration: DexcomAddConfiguration?,
-        startLibre3AfterNFC: Bool,
         coreDataManager: CoreDataManager,
         bluetoothPeripheralManager: BluetoothPeripheralManaging,
         sensorProvider: ActiveSensorProviding?,
@@ -201,7 +196,6 @@ private struct BluetoothPeripheralDetailContainerView: View {
             bluetoothPeripheral: bluetoothPeripheral,
             expectedBluetoothPeripheralType: bluetoothPeripheralType,
             dexcomConfiguration: dexcomConfiguration,
-            startLibre3AfterNFC: startLibre3AfterNFC,
             coreDataManager: coreDataManager,
             bluetoothPeripheralManager: bluetoothPeripheralManager,
             sensorProvider: sensorProvider,
@@ -217,14 +211,7 @@ private struct BluetoothPeripheralDetailContainerView: View {
             presentSelectionListView: router.showSelectionList,
             presentReadSuccessView: router.showReadSuccess,
             presentBatteryHistoryView: router.showBatteryHistory,
-            presentSignalStrengthView: router.showSignalStrength,
-            presentLibre3Setup: {
-                if let bluetoothPeripheral {
-                    bluetoothPeripheralManager.setConnectionEnabled(false, for: bluetoothPeripheral)
-                    bluetoothPeripheralManager.setBluetoothTransmitterToNil(forBluetoothPeripheral: bluetoothPeripheral)
-                }
-                router.path.append(BluetoothPeripheralsRoute(.libre3Setup(bluetoothPeripheral?.blePeripheral.sensorSerialNumber)))
-            }
+            presentSignalStrengthView: router.showSignalStrength
         ))
     }
 
@@ -415,8 +402,6 @@ struct BluetoothPeripheralTypeSelectionView: View {
 
     private func open(type bluetoothPeripheralType: BluetoothPeripheralType) {
         switch bluetoothPeripheralType {
-        case .Libre3Type:
-            router.path.append(BluetoothPeripheralsRoute(.libre3Setup(nil)))
         case .DexcomType, .DexcomG7Type:
             router.showDexcomConnectionMode(type: bluetoothPeripheralType)
         default:

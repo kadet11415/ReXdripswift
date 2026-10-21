@@ -15,10 +15,3 @@
 "bgRangeUrgent" = "Urgent";
 "bgRangeNotUrgent" = "Niet urgent";
 "bgRangeInRange" = "Binnen bereik";
-
-"alsoCollectedByWatch" = "Ook verzameld door Watch";
-
-// Direct to Watch setup and diagnosis
-"receivedViaWatchAtFooterFormat" = "Ontvangen via Watch om %@";
-"backfilledViaWatchAtFooterFormat" = "Aangevuld via Watch om %@";
-"receivedViaWatch" = "Ontvangen via Watch";

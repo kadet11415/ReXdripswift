@@ -8,12 +8,6 @@ public class GlucoseData {
     var glucoseLevelRaw:Double
 
     var backfilledAt: Date?
-    // Capture the collection path before batching or phone/Watch delivery can delay it.
-    // Backfill may merge with a live value, but does not confirm a second live collector.
-    var isHistoricalCollection: Bool
-    var valueIsFromWatch = false
-    var watchReceivedAt: Date?
-    var watchCollectedAt: Date?
 
     /// used when needed
     var slopeOrdinal: Int?
@@ -28,7 +22,6 @@ public class GlucoseData {
         self.glucoseLevelRaw = glucoseLevelRaw
 
         self.backfilledAt = backfilledAt
-        self.isHistoricalCollection = backfilledAt != nil
         
     }
     
@@ -39,7 +32,6 @@ public class GlucoseData {
         self.glucoseLevelRaw = glucoseLevelRaw
 
         self.backfilledAt = backfilledAt
-        self.isHistoricalCollection = backfilledAt != nil
         
         self.slopeOrdinal = slopeOrdinal
         

@@ -25,7 +25,6 @@ struct CareLinkGlucoseParseDiagnostics: Equatable {
     var acceptedCount = 0
     var invalidValueCount = 0
     var missingTimestampCount = 0
-    var unknownClockCount = 0
     var futureTimestampCount = 0
     var expiredTimestampCount = 0
     var duplicateTimestampCount = 0
@@ -104,11 +103,7 @@ enum CareLinkGlucoseParser {
             case let .deviceLocal(value):
                 // A retained offset is used only when a previous payload proved the relationship
                 // between this patient's device wall clock and CareLink server time.
-                guard let offset else {
-                    diagnostics.unknownClockCount += 1
-                    continue
-                }
-                date = value.addingTimeInterval(-offset)
+                date = value.addingTimeInterval(-(offset ?? 0))
             }
             guard date <= now.addingTimeInterval(5 * 60) else {
                 diagnostics.futureTimestampCount += 1
