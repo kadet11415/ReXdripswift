@@ -3245,7 +3245,6 @@ extension RootApplicationCoordinator: @preconcurrency CGMTransmitterDelegate {
                     minimumWarmUpRequiredInMinutes = ConstantsMaster.minimumSensorWarmUpRequiredInMinutes
                 }
             }
-            }
             let secondsUntilWarmUpComplete = (minimumWarmUpRequiredInMinutes * 60) - sensorAgeInSeconds
 
             if Self.shouldSuppressReadingDuringWarmup(
