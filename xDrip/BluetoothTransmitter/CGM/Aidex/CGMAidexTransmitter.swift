@@ -376,7 +376,12 @@ class CGMAidexTransmitter: BluetoothTransmitter, CGMTransmitter {
     }
 
     func overruleIsWebOOPEnabled() -> Bool {
-        return false
+        // Aidex/Linx/Lumiflex transmits already-calibrated glucose (isWebOOPEnabled == true),
+        // but the sensor still accepts a user-entered meter value. Returning true — the
+        // same convention as CGMG7Transmitter — lets the app accept a calibration from the
+        // user and route it to AidexSensor.calibrateSensor(glucoseMgDl:) via
+        // calibrate(calibration:), instead of disabling / treating it as "not necessary".
+        return true
     }
 
     func nonWebOOPAllowed() -> Bool {
@@ -443,6 +448,17 @@ class CGMAidexTransmitter: BluetoothTransmitter, CGMTransmitter {
 
     func getCBUUID_Receive() -> String {
         return AidexUUID.charF003
+    }
+
+    // MARK: - Signal strength (RSSI)
+    //
+    // Aidex owns its own CBPeripheral inside AidexSensor, so the base class's
+    // readRSSI()/didReadRSSI path (keyed to a nil peripheral) never runs. The
+    // signal page calls readSignalStrength() on a ~1s cadence while visible; point it
+    // at the real peripheral, and feed the result back through the base recorder.
+
+    override func readSignalStrength() {
+        aidexSensor?.requestRSSI()
     }
 }
 
@@ -631,6 +647,10 @@ extension CGMAidexTransmitter: AidexDriverDelegate {
             guard let self else { return }
             self.cGMAidexTransmitterDelegate?.received(batteryMillivolts: batteryMillivolts, from: self)
         }
+    }
+
+    func aidex(_ sensor: AidexSensor, didReadRSSI rssi: Int) {
+        reportRSSIMeasurement(rssi: rssi, connected: sensor.peripheral?.state == .connected)
     }
 
     func aidex(_ sensor: AidexSensor, didFinishScanning devices: [DiscoveredAidexSensor]) {

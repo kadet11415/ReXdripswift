@@ -65,6 +65,17 @@ class BluetoothTransmitter: NSObject, CBCentralManagerDelegate, CBPeripheralDele
         }
     }
 
+    /// RSSI entry point for transmitters that own their own CBPeripheral (Aidex/Linx/Lumiflex),
+    /// whose Core Bluetooth callbacks never reach the base class's didReadRSSI. Records through
+    /// the shared path so the signal-strength chart, gauge and parent indicator all update —
+    /// same effect as peripheral(_:didReadRSSI:error:) — and publishes the change.
+    func reportRSSIMeasurement(rssi: Int, connected: Bool) {
+        signalStrengthLock.lock()
+        signalStrengthConnected = connected
+        signalStrengthLock.unlock()
+        _ = recordSignalStrength(rssi)
+    }
+
     /// Called only from normal Bluetooth value callbacks on centralQueue. No timer or delayed retry.
     /// The identity check excludes obsolete peripherals without interrupting their caller's protocol handling.
     final func requestSignalStrengthForTraceIfNeeded(from peripheral: CBPeripheral) {

@@ -63,6 +63,8 @@ public protocol AidexDriverDelegate: AnyObject {
     func aidex(_ sensor: AidexSensor, didReceiveCalibrations records: [CalibrationRecord])
     func aidex(_ sensor: AidexSensor, didReceiveStartupInfo info: StartupDeviceInfo)
     func aidex(_ sensor: AidexSensor, batteryMillivolts: Int)
+    /// Current CoreBluetooth RSSI (dBm) for the connected sensor's peripheral.
+    func aidex(_ sensor: AidexSensor, didReadRSSI: Int)
     /// Вызывается при завершении режима сканирования (scanOnly). Возвращает все найденные сенсоры.
     func aidex(_ sensor: AidexSensor, didFinishScanning devices: [DiscoveredAidexSensor])
     /// Вызывается при активации сенсора (SET_NEW_SENSOR 0x20) — передаёт timestamp активации в мс.
@@ -83,6 +85,7 @@ public extension AidexDriverDelegate {
     func aidex(_ sensor: AidexSensor, didReceiveCalibrations records: [CalibrationRecord]) {}
     func aidex(_ sensor: AidexSensor, didReceiveStartupInfo info: StartupDeviceInfo) {}
     func aidex(_ sensor: AidexSensor, batteryMillivolts: Int) {}
+    func aidex(_ sensor: AidexSensor, didReadRSSI: Int) {}
     func aidex(_ sensor: AidexSensor, didFinishScanning devices: [DiscoveredAidexSensor]) {}
     func aidex(_ sensor: AidexSensor, didActivateSensorAtMs activationMs: Int64) {}
 }
@@ -167,6 +170,18 @@ public final class AidexSensor: NSObject, ObservableObject {
     /// Requires key exchange to be complete and a valid offset from a prior glucose reading.
     public func calibrateSensor(glucoseMgDl: Int) {
         sendCalibration(glucoseMgDl: glucoseMgDl)
+    }
+
+    /// Request a fresh CoreBluetooth RSSI measurement on the connected peripheral.
+    /// The result arrives via CBPeripheralDelegate.peripheral(_:didReadRSSI:error:),
+    /// which updates `rssi` and forwards it to the driver delegate. Driven by the
+    /// signal-strength page on a ~1 second cadence while that page is visible.
+    public func requestRSSI() {
+        bleQueue.async { [weak self] in
+            guard let sensor = self, let peripheral = sensor.peripheral,
+                  peripheral.state == .connected else { return }
+            peripheral.readRSSI()
+        }
     }
 
     // Internal state

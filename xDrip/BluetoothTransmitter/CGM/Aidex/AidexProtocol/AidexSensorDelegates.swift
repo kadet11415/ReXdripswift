@@ -429,7 +429,9 @@ extension AidexSensor: CBPeripheralDelegate {
     }
 
     public func peripheral(_ peripheral: CBPeripheral, didReadRSSI RSSI: NSNumber, error: Error?) {
+        guard error == nil else { return }
         rssi = RSSI.intValue
+        delegate?.aidex(self, didReadRSSI: RSSI.intValue)
     }
 
     public func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
