@@ -89,6 +89,12 @@ final class CGMOttaiTransmitter: BluetoothTransmitter, CGMTransmitter {
     /// xDrip only: sends the accepted readings to the Syai cloud when the user turned that on.
     private let cloudUploader: OttaiCloudUploader
 
+    // MARK: - scan-only state (OttaiScanOnly.swift)
+
+    /// devices discovered during scan-only mode (keyed by peripheral identifier)
+    internal var discoveredOttaiDevices: [UUID: DiscoveredOttaiSensor] = [:]
+    internal var ottaiScanTimeoutWork: DispatchWorkItem?
+
     // MARK: - state for one connection (reset on every connect)
 
     private enum Phase { case idle, enablingNotify, auth, streaming }

@@ -18,6 +18,8 @@
 		111352851C2F8F73108A3A62 /* CareLinkAccountState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F081BB1D5F106F950C4A8EA4 /* CareLinkAccountState.swift */; };
 		118B16068A87DFE7178A1239 /* Libre3SensorCert.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E708561906838D16B044415 /* Libre3SensorCert.swift */; };
 		13A4747AD828AEAD1B723DFE /* OttaiParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC4C2CD24CCBDD12F4AAD88F /* OttaiParser.swift */; };
+		O99A1C000001122005A8C1C /* OttaiScanOnly.swift in Sources */ = {isa = PBXBuildFile; fileRef = O99A1C000001122005A8C1D /* OttaiScanOnly.swift */; };
+		O99A1C000001122005A8C15 /* OttaiDevicePickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = O99A1C000001122005A8C16 /* OttaiDevicePickerView.swift */; };
 		14FD801068B18CBB8EC4FCBA /* OttaiCloudUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 310FB85B4345230331321EEA /* OttaiCloudUploader.swift */; };
 		16A7F56E1D1ED24F03F2070F /* GlucoseChartState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F76EA0FD5578C19B4A5176D5 /* GlucoseChartState.swift */; };
 		16D9458DAC0ADF9C79342AAA /* Libre3AccountLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5B1BEFB5B2FA090B8F13C5C /* Libre3AccountLookup.swift */; };
@@ -2299,6 +2301,8 @@
 		FBA100010000000000000001 /* FollowerBackgroundKeepAliveManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FollowerBackgroundKeepAliveManager.swift; sourceTree = "<group>"; };
 		FBA100030000000000000001 /* FollowerBackgroundKeepAliveManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FollowerBackgroundKeepAliveManagerTests.swift; sourceTree = "<group>"; };
 		FC4C2CD24CCBDD12F4AAD88F /* OttaiParser.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OttaiParser.swift; sourceTree = "<group>"; };
+		O99A1C000001122005A8C1D /* OttaiScanOnly.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OttaiScanOnly.swift; sourceTree = "<group>"; };
+		O99A1C000001122005A8C16 /* OttaiDevicePickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OttaiDevicePickerView.swift; sourceTree = "<group>"; };
 		FFE7AB5B458803F795CE6EA9 /* Libre3HistoricalBackfill.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Libre3HistoricalBackfill.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -2382,6 +2386,7 @@
 				7FA1EB69C25CDA25ADA2E74D /* OttaiCrypto.swift */,
 				187BAE275FDE4E081346A887 /* OttaiBleAuth.swift */,
 				FC4C2CD24CCBDD12F4AAD88F /* OttaiParser.swift */,
+				O99A1C000001122005A8C1D /* OttaiScanOnly.swift */,
 				6BDDE308B4B89A171F4D37B1 /* OttaiFormula.swift */,
 				5ADD70B4E5132F31AFDCDE39 /* OttaiOutputFilter.swift */,
 				24908660CE15BFB909B35AC2 /* OttaiMethodDefaults.swift */,
@@ -2800,6 +2805,7 @@
 				A1D1EC770000000000000001 /* DirectWatchStatusBanner.swift */,
 				4C20000D2F65000100000001 /* TransmitterReadSuccessView.swift */,
 				8D0054E03048BF6B00DEF850 /* AidexDevicePickerView.swift */,
+				O99A1C000001122005A8C16 /* OttaiDevicePickerView.swift */,
 			);
 			path = BluetoothPeripherals;
 			sourceTree = "<group>";
@@ -5504,6 +5510,8 @@
 				5E654193B5CBF596D6D66001 /* OttaiCrypto.swift in Sources */,
 				E8393C9948F10303A38E7BDA /* OttaiBleAuth.swift in Sources */,
 				13A4747AD828AEAD1B723DFE /* OttaiParser.swift in Sources */,
+				O99A1C000001122005A8C1C /* OttaiScanOnly.swift in Sources */,
+				O99A1C000001122005A8C15 /* OttaiDevicePickerView.swift in Sources */,
 				20F4EB764FB424E5A06F2695 /* OttaiFormula.swift in Sources */,
 				4C1A430E1DFC09DF02914AE6 /* OttaiOutputFilter.swift in Sources */,
 				284B12C5555D9CA475E0D576 /* OttaiMethodDefaults.swift in Sources */,

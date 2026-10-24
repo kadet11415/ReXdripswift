@@ -154,6 +154,18 @@ struct BluetoothPeripheralDetailView: View {
                 )
             }
         }
+        .sheet(isPresented: Binding<Bool>(
+            get: { state.discoveredOttaiDevices != nil },
+            set: { if !$0 { state.discoveredOttaiDevices = nil } }
+        )) {
+            if let devices = state.discoveredOttaiDevices {
+                OttaiDevicePickerView(
+                    devices: devices,
+                    onSelect: { state.selectOttaiDevice($0) },
+                    onCancel: { state.discoveredOttaiDevices = nil }
+                )
+            }
+        }
         .frame(maxWidth: UIDevice.current.userInterfaceIdiom == .pad ? 780 : .infinity)
         .frame(maxWidth: .infinity)
     }

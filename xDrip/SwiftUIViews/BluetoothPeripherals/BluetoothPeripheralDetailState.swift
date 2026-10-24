@@ -40,6 +40,9 @@ final class BluetoothPeripheralDetailState: NSObject, ObservableObject {
     /// Discovered Aidex sensors awaiting user selection — set by aidexDidFinishScanning.
     @Published var discoveredAidexDevices: [DiscoveredAidexSensor]? = nil
 
+    /// Discovered Ottai sensors awaiting user selection — set by ottaiDidFinishScanning.
+    @Published var discoveredOttaiDevices: [DiscoveredOttaiSensor]? = nil
+
     // MARK: - Dependencies
 
     private var bluetoothPeripheral: BluetoothPeripheral?
@@ -180,11 +183,23 @@ final class BluetoothPeripheralDetailState: NSObject, ObservableObject {
 
         super.init()
 
+        let expectedOttaiType: Bool = {
+            return expectedBluetoothPeripheralType == .OttaiType
+        }()
         if expectedBluetoothPeripheralType == .AidexType {
             NotificationCenter.default.addObserver(
                 self,
                 selector: #selector(handleAidexScanResults(_:)),
                 name: .aidexDidFinishScanning,
+                object: nil
+            )
+        }
+
+        if expectedOttaiType {
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleOttaiScanResults(_:)),
+                name: .ottaiDidFinishScanning,
                 object: nil
             )
         }
@@ -4418,6 +4433,21 @@ extension BluetoothPeripheralDetailState: CGMAidexTransmitterDelegate {
         }
     }
 
+    func selectOttaiDevice(_ discovered: DiscoveredOttaiSensor) {
+        discoveredOttaiDevices = nil
+        if let bluetoothPeripheral,
+           let transmitter = bluetoothPeripheralManager?
+            .getBluetoothTransmitter(for: bluetoothPeripheral, createANewOneIfNecesssary: false)
+                as? CGMOttaiTransmitter {
+            transmitter.connectToDiscoveredDevice(discovered)
+        } else {
+            // For new device scan: use the temp transmitter stored in BluetoothPeripheralManager
+            (bluetoothPeripheralManager as? BluetoothPeripheralManager)?
+                .tempBlueToothTransmitterWhileScanningForNewBluetoothPeripheral
+                .flatMap { ($0 as? CGMOttaiTransmitter)?.connectToDiscoveredDevice(discovered) }
+        }
+    }
+
     func aidexDidConnect(_ sensor: AidexSensor, from cGMAidexTransmitter: CGMAidexTransmitter) {
         (bluetoothPeripheralManager as? CGMAidexTransmitterDelegate)?.aidexDidConnect(sensor, from: cGMAidexTransmitter)
     }
@@ -4455,5 +4485,30 @@ extension BluetoothPeripheralDetailState: CGMAidexTransmitterDelegate {
 
         trace("AidexUI: setting discoveredAidexDevices = %{public}d devices", log: log, category: ConstantsLog.categoryBluetoothPeripheralViewController, type: .info, devices.count)
         discoveredAidexDevices = devices
+    }
+
+    @objc private func handleOttaiScanResults(_ notification: Notification) {
+        trace("OttaiUI: handleOttaiScanResults fired", log: log, category: ConstantsLog.categoryBluetoothPeripheralViewController, type: .info)
+
+        guard let userInfo = notification.userInfo,
+              let devices = userInfo["devices"] as? [DiscoveredOttaiSensor] else {
+            trace("OttaiUI: handleOttaiScanResults — failed to extract devices from userInfo", log: log, category: ConstantsLog.categoryBluetoothPeripheralViewController, type: .error)
+            return
+        }
+
+        trace("OttaiUI: handleOttaiScanResults — received %{public}d device(s)", log: log, category: ConstantsLog.categoryBluetoothPeripheralViewController, type: .info, devices.count)
+
+        guard devices.count > 0 else {
+            trace("OttaiUI: no Ottai sensors found, showing alert", log: log, category: ConstantsLog.categoryBluetoothPeripheralViewController, type: .info)
+            pendingAlert = BluetoothPeripheralDetailAlert(
+                title: "No Sensors Found",
+                message: "No Ottai/Syai sensors were found nearby. Make sure the sensor is activated and within range."
+            )
+            refresh()
+            return
+        }
+
+        trace("OttaiUI: setting discoveredOttaiDevices = %{public}d devices", log: log, category: ConstantsLog.categoryBluetoothPeripheralViewController, type: .info, devices.count)
+        discoveredOttaiDevices = devices
     }
 }

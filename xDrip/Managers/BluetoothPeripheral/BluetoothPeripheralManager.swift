@@ -1422,6 +1422,16 @@ extension BluetoothPeripheralManager: BluetoothPeripheralManaging {
             aidexTransmitter.scanForDevices()
             return
         }
+
+        // For Ottai: use scan-only mode — collect all devices first, then let user choose.
+        if type == .OttaiType, let ottaiTransmitter = newBluetoothTranmsitter as? CGMOttaiTransmitter {
+            self.callBackForScanningResult = callBackForScanningResult
+            if let callBackForScanningResult = callBackForScanningResult {
+                callBackForScanningResult(.success)
+            }
+            ottaiTransmitter.scanForDevices()
+            return
+        }
         
         // start scanning
         let scanningResult = newBluetoothTranmsitter.startScanning()
