@@ -3,7 +3,7 @@ import XCTest
 
 final class AidexProtocolTests: XCTestCase {
     func testStartupInfoFrameParsesOpcodePayloadAndCRC() {
-        var frame = Data([0x10, 0x00, 0x00, 1, 2, 3, 14, 0, 0, 0x47, 0x58, 0x2D, 0x30, 0x31, 0, 0, 0])
+        var frame = Data([0x10, 0x00, 0x00, 1, 2, 3, 14, 14, 0, 0x47, 0x58, 0x2D, 0x30, 0x31, 0, 0, 0])
         frame = CRC16.append(frame)
 
         let info = AidexParser.parseStartupDeviceInfoFrame(frame)
@@ -33,6 +33,23 @@ final class AidexProtocolTests: XCTestCase {
 
         XCTAssertTrue(AidexParser.parseLocalStartTimePayload(Data(repeating: 0, count: 9))?.isAllZeros == true)
         XCTAssertNil(AidexParser.parseLocalStartTimePayload(Data([0xFF, 0xFF, 13, 32, 25, 61, 61])))
+    }
+
+    /// §24 test vector: serial `2222267V4E` — если secret/IV не match'ит,
+    /// весь ключевой обмен и шифрование не заработают.
+    func testSerialCryptoKeyDerivationTestVector() {
+        let secret = SerialCrypto.deriveSecret("2222267V4E")
+        let iv = SerialCrypto.deriveIV("2222267V4E")
+        XCTAssertEqual(secret.count, 16)
+        XCTAssertEqual(iv.count, 16)
+        XCTAssertEqual(
+            secret.map { String(format: "%02x", $0) }.joined(),
+            "4b76169576da80e4eeacf886230873d2"
+        )
+        XCTAssertEqual(
+            iv.map { String(format: "%02x", $0) }.joined(),
+            "14cb6a3a39b96c448ebc39185f70f8aa"
+        )
     }
 
     func testF003FrameClassificationAndCRCValidation() {

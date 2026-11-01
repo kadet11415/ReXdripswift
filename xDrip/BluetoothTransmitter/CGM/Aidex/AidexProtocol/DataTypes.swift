@@ -5,7 +5,7 @@ import Foundation
 /// 17-байтовый data frame с F003 (после дешифрования).
 struct GlucoseFrame {
     let opcode: UInt8
-    let timeOffsetMinutes: Int       // секунды / 60
+    let timeOffsetMinutes: Int       // u16 LE [4..5] — минуты с момента старта сенсора
     let glucoseMgDl: Float           // после применения scaling factor
     let rawGlucosePacked: Int        // 10-bit значение до scaling
     let i1: Float                    // raw channel 1 (u16 / 100)

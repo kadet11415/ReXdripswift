@@ -34,9 +34,11 @@ enum CRC16 {
         return result
     }
 
-    /// Проверяет CRC-16 в конце ответа. Возвращает true если CRC корректен.
+    /// Проверяет CRC-16 в конце ответа: послед. 2 байта — CRC-16/CCITT-FALSE
+    /// над всеми предыдущими (LE: low byte перв.). Data короче 3 байт — невалидно
+    /// (Kotlin `Crc16CcittFalse.validateResponse` 1:1).
     static func validateResponse(_ data: Data) -> Bool {
-        guard data.count >= 3 else { return true } // слишком короткий — не можем проверить
+        guard data.count >= 3 else { return false }
         let payload = data.prefix(data.count - 2)
         let expected = checksum(payload)
         let actual = UInt16(data[data.count - 2]) | (UInt16(data[data.count - 1]) << 8)

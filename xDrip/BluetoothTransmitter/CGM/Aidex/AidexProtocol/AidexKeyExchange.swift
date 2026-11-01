@@ -10,22 +10,57 @@ import Foundation
 /// 5. Post-BOND config в F001: AES-CFB([0x10, 0xC1, 0xF3], sessionKey, snIV)
 final class AidexKeyExchange {
     let bareSerial: String
-    let snSecret: Data          // 16 байт — F001 challenge
-    let snIV: Data              // 16 байт — IV для всех шифров
+    private(set) var snSecret: Data          // 16 байт — F001 challenge
+    private(set) var snIV: Data              // 16 байт — IV для всех шифров
 
     private(set) var pairKey: Data?
     private(set) var sessionKey: Data?
 
+    /// `true`, когда F001/BOND-материал получен из provisioned-источника
+    /// (CN-облако), а не SN-деривации (Kotlin `usesProvisionedPairingMaterial`).
+    private(set) var usesProvisionedPairingMaterial: Bool
+
     var isComplete: Bool { sessionKey != nil }
 
-    init(bareSerial: String) {
+    /// - Parameter pairingMaterial: provisioned-материал CN-облака (F001
+    ///   challenge = `publicKey`, IV = `communicationKey`) — для новых
+    ///   сенсоров (§2.2, §6). `nil` — legacy SN-деривация.
+    init(bareSerial: String, pairingMaterial: AidexPairingMaterial? = nil) {
         self.bareSerial = bareSerial
-        self.snSecret = SerialCrypto.deriveSecret(bareSerial)
-        self.snIV = SerialCrypto.deriveIV(bareSerial)
+        self.snSecret = pairingMaterial?.secret ?? SerialCrypto.deriveSecret(bareSerial)
+        self.snIV = pairingMaterial?.iv ?? SerialCrypto.deriveIV(bareSerial)
+        self.usesProvisionedPairingMaterial = pairingMaterial != nil
     }
 
     /// Шаг 1: challenge для записи в F001.
     var challenge: Data { snSecret }
+
+    /// §2.2/§6/§24: установка provisioned-материала CN-облака перед записью F001
+    /// (Kotlin `maybeUseProvisionedPairingMaterial` — installSaved + rebuild).
+    /// Материал перезаписывает SN-деривацию: challenge = `secret`, IV = `iv`.
+    func applyProvisionedMaterial(_ material: AidexPairingMaterial) {
+        pairKey = nil
+        sessionKey = nil
+        snSecret = material.secret
+        snIV = material.iv
+        usesProvisionedPairingMaterial = true
+    }
+
+    /// (Kotlin `maybeUseProvisionedPairingMaterial` material==null: rebuild без
+    /// материала — «Provisioned material cleared; using serial derivation».)
+    func restoreSerialDerivation() {
+        pairKey = nil
+        sessionKey = nil
+        snSecret = SerialCrypto.deriveSecret(bareSerial)
+        snIV = SerialCrypto.deriveIV(bareSerial)
+        usesProvisionedPairingMaterial = false
+    }
+
+    /// §19: saved-key exchange (decidePairKeyStartAction = USE_SAVED_KEY):
+    /// PAIR-ключ из vault, F001-челлендж не записывается — сразу read F002 BOND.
+    func useSavedPairKey(_ savedKey: Data) {
+        pairKey = savedKey
+    }
 
     /// Шаг 2: сохранить PAIR key из F001 notify.
     func onPairKeyReceived(_ data: Data) {

@@ -69,6 +69,11 @@ public protocol AidexDriverDelegate: AnyObject {
     func aidex(_ sensor: AidexSensor, didFinishScanning devices: [DiscoveredAidexSensor])
     /// Вызывается при активации сенсора (SET_NEW_SENSOR 0x20) — передаёт timestamp активации в мс.
     func aidex(_ sensor: AidexSensor, didActivateSensorAtMs activationMs: Int64)
+    /// §24: key-exchange (saved- или fresh) исчерпал ретраи — GATT-реконнект остановлен,
+    /// драйвер предлагает broadcast-only fallback (Kotlin `enterBroadcastOnlyFallback`).
+    /// Приложение может перейти на свой скан-режим (scanOnly) и парсить
+    /// advertising-образцы (`AidexParser.parseBroadcastSamplePayload`).
+    func aidex(_ sensor: AidexSensor, didEnterBroadcastOnlyFallback: Bool)
 }
 
 public extension AidexDriverDelegate {
@@ -88,6 +93,7 @@ public extension AidexDriverDelegate {
     func aidex(_ sensor: AidexSensor, didReadRSSI: Int) {}
     func aidex(_ sensor: AidexSensor, didFinishScanning devices: [DiscoveredAidexSensor]) {}
     func aidex(_ sensor: AidexSensor, didActivateSensorAtMs activationMs: Int64) {}
+    func aidex(_ sensor: AidexSensor, didEnterBroadcastOnlyFallback: Bool) {}
 }
 
 enum StartupControlStage {
@@ -166,6 +172,32 @@ public final class AidexSensor: NSObject, ObservableObject {
     /// the SET_CALIBRATION command. Returns 0 if no glucose has been received yet.
     public var currentOffsetMinutes: Int { lastOffsetMinutes }
 
+    /// (Kotlin `applyWearProfileFromModel`): байт сенсора всегда побеждает —
+    /// если 0x10 уже дал wear_days, держим его (rating модели не подставляем);
+    /// иначе ждём байт, рейтинг доступен через `displayWearDays`.
+    func applyWearProfileFromModel(_ modelName: String) {
+        if sensorReportedWearDays {
+            print("[AidexSensor] Wear profile: keeping sensor-reported days=\(wearDays) for model=\(modelName)")
+        } else {
+            print("[AidexSensor] Wear profile: model=\(modelName); waiting for sensor-reported wear_days")
+        }
+    }
+
+    /// (Kotlin `getDisplayWearDays`): display-only. Байт свежей связи побеждает,
+    /// remembered-байт прошлой связи — ниже свежего, выше рейтинга модели.
+    public var displayWearDays: Int {
+        let byte = sensorReportedWearDays ? wearDays : nil
+        let model = AidexWearProfile.ratedDays(modelName)
+        return AidexWearProfile.resolve(
+            sensorDays: byte,
+            rememberedSensorDays: rememberedSensorWearDays,
+            modelDays: model) ?? 0
+    }
+
+    /// Байт wear_days из прошлых/текущей связи — ранг выше рейтинга модели.
+    /// Не сбрасывается per-connection (Kotlin: поле менеджера между reconnect'ами).
+    var rememberedSensorWearDays: Int?
+
     /// Send a calibration value (mg/dL) to the sensor.
     /// Requires key exchange to be complete and a valid offset from a prior glucose reading.
     public func calibrateSensor(glucoseMgDl: Int) {
@@ -229,6 +261,17 @@ public final class AidexSensor: NSObject, ObservableObject {
 
     var reconnectAttempts = 0
     var consecutiveConnectFailures = 0
+    var authFailureCount = 0
+    // §19/§24: стабильный PAIR-ключ (vault) + материал CN-облака
+    // (Kotlin `AiDexPairKeyVault` / `AiDexProvisioningStore` / `AiDexRuntimePolicy`).
+    // Живут между соединениями, как в Kotlin-менеджере.
+    var usingSavedPairKey = false
+    var pairKeyAwaitingLiveValidation = false
+    var savedKeyExhausted = false
+    var keyExchangeFailures = 0
+    var pairKeyResetPending = false
+    var bondRereadCount = 0
+    var connectionKeyStartAction: AidexRuntimePolicy.PairKeyStartAction = .freshPair
     var shouldReconnect = true
 
     var pendingResetReconnect = false
@@ -499,6 +542,7 @@ public final class AidexSensor: NSObject, ObservableObject {
         connectionPhase = .discoveringServices
         reconnectAttempts = 0
         consecutiveConnectFailures = 0
+        authFailureCount = 0
         resetPerConnectionState()
         let services = [CBUUID(string: AidexUUID.service), CBUUID(string: AidexUUID.serviceDIS)]
         print("[AidexSensor] onConnected calling discoverServices: \(services.map { $0.uuidString })")
@@ -525,6 +569,12 @@ public final class AidexSensor: NSObject, ObservableObject {
         pendingCCCD = []
         cccdIndex = 0
         cccdRetryCount = 0
+        // Per-connection PAIR-key state (меж-соединения: keyExchangeFailures,
+        // savedKeyExhausted, pairKeyResetPending — держим, как в Kotlin).
+        usingSavedPairKey = false
+        pairKeyAwaitingLiveValidation = false
+        bondRereadCount = 0
+        connectionKeyStartAction = .freshPair
         autoActivationAttempted = false
         startupControlStage = .idle
         historyDownloading = false
@@ -602,7 +652,14 @@ public final class AidexSensor: NSObject, ObservableObject {
         readDISChars()
 
         connectionPhase = .enablingNotifications
-        pendingCCCD = [f003, f002, f001].compactMap { $0 }
+        // Saved-key reconnects never touch F001 (Kotlin services-discovered:
+        // cccdQueue = F003+F002 только, F001 — только при FRESH_PAIR).
+        connectionKeyStartAction = decidePairKeyStartAction()
+        var chain: [CBCharacteristic] = [f003, f002].compactMap { $0 }
+        if connectionKeyStartAction == .freshPair {
+            if let f1 = f001 { chain.append(f1) }
+        }
+        pendingCCCD = chain
         cccdIndex = 0
         startCCCDChain()
     }
@@ -707,24 +764,152 @@ public final class AidexSensor: NSObject, ObservableObject {
     }
 
     func startKeyExchange() {
-        print("[AidexSensor] startKeyExchange f001=\(f001 != nil) challengeWritten=\(challengeWritten)")
-        guard let f001 else {
-            print("[AidexSensor] startKeyExchange: f001 is NIL, aborting")
+        // Re-check на каждом key-exchange: handoff может записать ключ в vault
+        // позже конструирования менеджера (Kotlin decidePairKeyStartAction 3226..3238).
+        connectionKeyStartAction = decidePairKeyStartAction()
+        switch connectionKeyStartAction {
+        case .useSavedKey:
+            startSavedPairKeyExchange()
+        case .freshPair:
+            startFreshPairKeyExchange()
+        }
+    }
+
+    /// §24: `AiDexRuntimePolicy.decidePairKeyStartAction` (Kotlin 1:1).
+    /// iOS: явного bond-state'а CoreBluetooth нет; `explicitPairRequested` тоже
+    /// нет (кнопки «Pair» в iOS-сканере нет). `bonded = true`: на CoreBluetooth
+    /// F001 от сенсора идёт от этого же устройства-ридера (SMP-bond держится
+    /// в CoreBluetooth-стэке), replace-over-F001 доступен — это единственный
+    /// путь заменить мёртвый ключ (Kotlin: bonded-ветка).
+    func decidePairKeyStartAction() -> AidexRuntimePolicy.PairKeyStartAction {
+        let saved = AiDexPairKeyVault.shared.load(serial)
+        return AidexRuntimePolicy.decidePairKeyStartAction(
+            hasSavedPairKey: saved?.count == AiDexPairKeyBackup.pairKeyBytes,
+            savedKeyExhausted: savedKeyExhausted,
+            explicitPairRequested: false,
+            bonded: true,
+            pairKeyResetPending: pairKeyResetPending)
+    }
+
+    /// USE_SAVED_KEY: xPair-ключ из vault, F001-челлендж не записывается —
+    /// сразу read F002 BOND (Kotlin `startSavedPairKeyExchange`).
+    private func startSavedPairKeyExchange() {
+        guard let saved = AiDexPairKeyVault.shared.load(serial),
+              saved.count == AiDexPairKeyBackup.pairKeyBytes else {
+            print("[AidexSensor] Saved-key exchange requested without a valid PAIR credential — fresh pair")
+            startFreshPairKeyExchange()
             return
         }
+        usingSavedPairKey = true
+        pairKeyAwaitingLiveValidation = false
+        keyExchange.reset()
+        keyExchange.useSavedPairKey(saved)
         connectionPhase = .keyExchange
+        challengeWritten = false
+        bondRereadCount = 0
+        bondDataRead = false
+        print("[AidexSensor] Key exchange: reading F002 BOND data with saved PAIR credential (fp=\(AiDexPairKeyVault.fingerprint(saved)))")
+        keyExchangeWatchdogStart()
+        guard let f2 = f002 else {
+            print("[AidexSensor] BOND characteristic missing — key-exchange failure")
+            handleKeyExchangeFailure(reason: "f002-unavailable")
+            return
+        }
+        peripheral?.readValue(for: f2)
+    }
 
+    /// FRESH_PAIR: provisioned-материал CN-облака (если есть) → challenge в F001.
+    /// (Kotlin `startFreshPairKeyExchange` + `maybeUseProvisionedPairingMaterial`.)
+    private func startFreshPairKeyExchange() {
+        guard let f001 else {
+            print("[AidexSensor] startFreshPairKeyExchange: f001 is NIL — aborting")
+            handleKeyExchangeFailure(reason: "f001-unavailable")
+            return
+        }
+        // Install provisioned-материала (Kotlin: `AiDexProvisionedPairingMaterial`
+        // в конструкторе `AiDexKeyExchange`): reset сначала, материал — потом,
+        // иначе reset() перечистил бы snSecret/snIV обратно на SN-деривацию.
+        keyExchange.reset()
+        usingSavedPairKey = false
+        connectionPhase = .keyExchange
+        bondRereadCount = 0
+        if let material = AidexProvisioningStore.shared.loadSaved(bareSerial) {
+            keyExchange.applyProvisionedMaterial(material)
+            print("[AidexSensor] Using provisioned AIDEX pairing material")
+        } else if keyExchange.usesProvisionedPairingMaterial {
+            // Материал удалён из store с прошлой связи — как в Kotlin:
+            // «Provisioned material cleared; using serial derivation».
+            keyExchange.restoreSerialDerivation()
+            print("[AidexSensor] Provisioned material cleared — using serial derivation")
+        }
         let challenge = keyExchange.challenge
-        print("[AidexSensor] startKeyExchange: writing challenge \(challenge.count) bytes")
+        print("[AidexSensor] startKeyExchange: writing challenge \(challenge.count) bytes provisioned=\(keyExchange.usesProvisionedPairingMaterial)")
         peripheral?.writeValue(challenge, for: f001, type: .withResponse)
         challengeWritten = true
+        keyExchangeWatchdogStart()
+    }
 
+    private func keyExchangeWatchdogStart() {
+        keyExchangeWatchdog?.cancel()
         let watchdog = DispatchWorkItem { [weak self] in
             guard let self, case .keyExchange = self.connectionPhase else { return }
-            self.reconnect()
+            self.handleKeyExchangeFailure(reason: "key-exchange-timeout")
         }
         keyExchangeWatchdog = watchdog
         bleQueue.asyncAfter(deadline: .now() + .milliseconds(Int(AidexTimeout.keyExchange)), execute: watchdog)
+    }
+
+    /// §24: key-exchange (saved- или fresh) не дал рабочую сессию.
+    /// (Kotlin `handleKeyExchangeFailure` + `decideKeyExchangeFailureAction` 1:1,
+    /// iOS: bond-state'а нет — `bonded = true`: replace-over-F001 есть поведение
+    /// старого Swift-драйвера и единственный путь заменить мёртвый ключ.)
+    func handleKeyExchangeFailure(reason: String) {
+        let usedSavedKey = usingSavedPairKey
+        let freshPairAfterReset = pairKeyResetPending && !usedSavedKey
+        keyExchangeFailures += 1
+        keyExchange.reset()
+        usingSavedPairKey = false
+        pairKeyAwaitingLiveValidation = false
+        bondDataRead = false
+        challengeWritten = false
+        keyExchangeWatchdog?.cancel()
+        connectionPhase = .disconnected
+        print("[AidexSensor] Key exchange failed #\(keyExchangeFailures) reason=\(reason) saved=\(usedSavedKey) afterReset=\(freshPairAfterReset)")
+        let action = AidexRuntimePolicy.decideKeyExchangeFailureAction(
+            consecutiveFailures: keyExchangeFailures,
+            maxFailures: AidexRuntimePolicy.keyExchangeMaxFailures,
+            usedSavedKey: usedSavedKey,
+            bonded: true,
+            freshPairAfterReset: freshPairAfterReset)
+        switch action {
+        case .retryCleanGatt:
+            statusMessage = "Pairing..."
+            reconnect()
+        case .restoreSavedKey:
+            // Fresh pair после reset'а не дал рабочий ключ: reset, видимо, не задел
+            // credential — возвращаемся к хранимому (Kotlin RESTORE_SAVED_KEY).
+            pairKeyResetPending = false
+            keyExchangeFailures = 0
+            savedKeyExhausted = false
+            statusMessage = "Restoring pairing key..."
+            reconnect()
+        case .replaceSavedKey:
+            savedKeyExhausted = true
+            keyExchangeFailures = 0
+            statusMessage = "Repairing pairing key..."
+            reconnect()
+        case .broadcastOnly:
+            // Rетраи исчерпаны, и замены ключа нет (или некому): broadcast-only —
+            // GATT-реконнект останавливается, живые данные через scan
+            // (Kotlin `enterBroadcastOnlyFallback`).
+            shouldReconnect = false
+            statusMessage = "Pairing key unavailable — Broadcast Only"
+            print("[AidexSensor] Key-exchange failures exhausted — broadcast-only fallback reason=\(reason)")
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.delegate?.aidex(self, didEnterBroadcastOnlyFallback: true)
+            }
+        }
     }
 
     func onKeyExchangeComplete() {
@@ -793,15 +978,15 @@ public final class AidexSensor: NSObject, ObservableObject {
         case .status:
             handleStatusFrame(decrypted)
         case .calibration:
+            // 13-байтные F003-фреймы (opcode 0x0A) — сенсор подтверждает
+            // внутреннее обновление калибровки; результат команды приходит
+            // по F002 0x25-ACK, поэтому здесь только log (Kotlin
+            // handleCalibrationNotificationFrame — без UI-callback).
             if decrypted.first == 0x0A {
-                print("[Aidex-DEBUG] F003 calibration result=accepted")
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
-                    self.delegate?.aidex(self, didReceiveCalibrationResult: true, message: "Calibration accepted")
-                }
+                print("[Aidex-DEBUG] F003 calibration notification (opcode 0x0A) — internal state update, log only")
             } else {
                 let opcode = decrypted.first.map { String(format: "0x%02X", $0) } ?? "none"
-                print("[Aidex-DEBUG] F003 calibration frame opcode=\(opcode)")
+                print("[Aidex-DEBUG] F003 unknown 13-byte frame opcode=\(opcode)")
             }
         case .unknown:
             print("[Aidex-DEBUG] F003 unknown frame bytes=\(decrypted.count)")
@@ -818,6 +1003,15 @@ public final class AidexSensor: NSObject, ObservableObject {
             print("[Aidex-DEBUG] F003 data rejected reason=parse-failed bytes=\(decrypted.count)")
             return
         }
+        // Kotlin-референс (AiDexParser.parseDataFrame / AiDexBleManager.handleF003):
+        // reject по «unknown data frame type» НЕ существует — CRC-valid 17B-фрейм
+        // с неизвестным scale-code парсится как обычный glucose-фрейм с fallback
+        // scale 1.0 (frame.glucoseMgDl уже считает `scalingFactor(for:) ?? 1.0`).
+        // Lumi/GX-01S-прошивки стримят live-фреймы с opcode 0x01 — бросать кадр
+        // было бы отказом в данных (pre-фикс: все кадры 0x01 → unknown-data-frame-type).
+        if scalingFactor(for: frame.opcode) == nil {
+            print("[Aidex-DEBUG] F003 data frame unrecognized scale code=0x\(String(format: "%02X", frame.opcode)) — accepted with 1.0 fallback")
+        }
         let frameOpcode = String(format: "0x%02X", frame.opcode)
         print("[Aidex-DEBUG] F003 data frame parsed opcode=\(frameOpcode) offsetMin=\(frame.timeOffsetMinutes) glucoseValid=\(frame.isValid)")
 
@@ -833,6 +1027,28 @@ public final class AidexSensor: NSObject, ObservableObject {
         let offset = frame.timeOffsetMinutes
         lastOffsetMinutes = offset
         if offset > liveOffsetCutoff { liveOffsetCutoff = offset }
+
+        // §19: ключ, только что дешифровавший CRC-valid live-фрейм, — единственная
+        // credential, достаточная для персистентности (Kotlin: saveValidated after
+        // valid direct F003). Свежий F001-ключ (pairKeyAwaitingLiveValidation) тут
+        // и валидируется: fresh pair → vault; saved-key exchange — нет.
+        if pairKeyAwaitingLiveValidation, let pk = keyExchange.pairKey {
+            if AiDexPairKeyVault.shared.saveValidated(serial, pk) {
+                pairKeyAwaitingLiveValidation = false
+                print("[AidexSensor] Persisted PAIR credential after valid direct F003 (fp=\(AiDexPairKeyVault.fingerprint(pk)))")
+            } else {
+                print("[AidexSensor] Could not persist validated PAIR credential; retry on next live frame")
+            }
+        }
+        // Post-frame-сбросы — по valid live-фрейму без условий (Kotlin:
+        // after save block — usingSaved/failures/exhausted обнуляются).
+        usingSavedPairKey = false
+        keyExchangeFailures = 0
+        savedKeyExhausted = false
+        if pairKeyResetPending, !pairKeyAwaitingLiveValidation {
+            pairKeyResetPending = false
+            print("[AidexSensor] Post-reset pairing settled by valid live data")
+        }
 
         if sensorReportedWearDays, wearDays > 0, offset > wearDays * 24 * 60 {
             sensorExpired = true
@@ -919,15 +1135,26 @@ public final class AidexSensor: NSObject, ObservableObject {
         case 0x22: handleHistoryRangeResponse(plaintext)
         case 0x23: handleHistoryRawResponse(plaintext)
         case 0x24: handleHistoryBriefResponse(plaintext)
+        case 0x25: handleCalibrationAck(plaintext)
         case 0x26: handleCalibrationRangeResponse(plaintext)
         case 0x27: handleCalibrationResponse(plaintext)
+        case 0x30: handleSetDefaultParamResponse(plaintext)
+        case 0x31: handleDefaultParamResponse(plaintext)
         case 0x20: handleNewSensorAck()
         case 0x34: handleAutoUpdateStatusAck()
         case 0x35: handleDynamicAdvModeAck()
-        case 0xF2: handleDeleteBondAck()
-        case 0xF3: handleClearStorageAck()
+        case 0xF0: handleResetResponse(plaintext)
+        case 0xF2: handleDeleteBondAck(plaintext)
+        case 0xF3: handleClearStorageAck(plaintext)
         default:
-            print("[Aidex-DEBUG] F002 unknown response opcode=\(opcodeText) bytes=\(plaintext.count)")
+            // AUTO_UPDATE_CALIBRATION heuristic (§17): unknown opcode + valid
+            // CRC + size >= 12 (op + status + startIndex_u16 + >= 1×8B record)
+            // — sensor push'ит калибровку недобровно.
+            if plaintext.count >= 12, CRC16.validateResponse(plaintext) {
+                handleAutoUpdateCalibration(plaintext)
+            } else {
+                print("[Aidex-DEBUG] F002 unknown response opcode=\(opcodeText) bytes=\(plaintext.count)")
+            }
         }
     }
 
@@ -949,6 +1176,10 @@ public final class AidexSensor: NSObject, ObservableObject {
         if info.wearDays > 0 {
             wearDays = info.wearDays
             sensorReportedWearDays = true
+            // Байт прошлой/этой связи — ранг выше модели-рейтинга, ниже свежего
+            // (Kotlin `rememberedSensorWearDays`).
+            rememberedSensorWearDays = info.wearDays
+            applyWearProfileFromModel(info.modelName)
         }
 
         DispatchQueue.main.async { [weak self] in
@@ -1013,36 +1244,25 @@ public final class AidexSensor: NSObject, ObservableObject {
     }
 
     func handleBroadcastPayload(_ payload: Data, source: String) {
-        // Connected 0x11 broadcast sample. Layout (unencrypted):
-        //   [0..3] offsetMinutes (u32 LE, fallback u16 LE at [0..1])
-        //   [4]    trend (signed byte, tenths of mg/dL/min)
-        //   [5]    glucose mg/dL (u8) — or packed glucose
-        // This is a best-effort FALLBACK for recovering display data when direct
-        // F003 streaming is not yet producing readings; it is NOT the primary path.
+        // Connected 0x11 broadcast sample. Layout (unencrypted, §12):
+        //   [0..3] offsetMinutes (u32 LE; при невалидном — fallback u16 LE [0..1])
+        //   [4]    trend (1B, расшифровка неизвестна — только значение)
+        //   glucose — 10-bit: byte[5] | ((byte[6] & 0x03) << 8);
+        //          fallback — plain byte[5]; принимается первое в 20..500.
+        // Это best-effort FALLBACK для восстановления отображения, когда
+        // прямой F003-streaming ещё не даёт чтения; не основной путь.
         guard payload.count >= 7 else {
             print("[Aidex-DEBUG] F002 0x11 broadcast rejected reason=too-short source=\(source) payloadBytes=\(payload.count)")
             return
         }
 
-        let offsetCandidate = Int(payload.subdata(in: 0..<4).toU32LE())
-        let offsetMinutes: Int
-        if offsetCandidate > 0 && offsetCandidate <= 30 * 24 * 60 {
-            offsetMinutes = offsetCandidate
-        } else {
-            offsetMinutes = Int(payload.subdata(in: 0..<2).toU16LE())
-        }
-        guard offsetMinutes > 0, offsetMinutes <= 30 * 24 * 60 else {
-            print("[Aidex-DEBUG] F002 0x11 broadcast rejected reason=offset-out-of-range source=\(source) offset=\(offsetMinutes)")
+        guard let sample = AidexParser.parseBroadcastSamplePayload(payload) else {
+            print("[Aidex-DEBUG] F002 0x11 broadcast rejected reason=parse-failed source=\(source) payloadBytes=\(payload.count)")
             return
         }
-
-        let fallbackGlucose = Int(payload[5])
-        guard fallbackGlucose >= AidexFrame.minValidGlucose,
-              fallbackGlucose <= AidexFrame.maxValidGlucose else {
-            print("[Aidex-DEBUG] F002 0x11 broadcast rejected reason=glucose-out-of-range source=\(source) value=\(fallbackGlucose)")
-            return
-        }
-        print("[Aidex-DEBUG] F002 0x11 broadcast accepted source=\(source) offsetMin=\(offsetMinutes)")
+        let offsetMinutes = sample.offsetMinutes
+        let glucoseMgDl = sample.glucoseMgDl
+        print("[Aidex-DEBUG] F002 0x11 broadcast accepted source=\(source) offsetMin=\(offsetMinutes) glucoseMgDl=\(glucoseMgDl) trend=\(sample.trend)")
 
         lastOffsetMinutes = offsetMinutes
         if offsetMinutes > liveOffsetCutoff { liveOffsetCutoff = offsetMinutes }
@@ -1051,7 +1271,7 @@ public final class AidexSensor: NSObject, ObservableObject {
         let sampleTime = resolveTimestamp(now: now, offsetMinutes: offsetMinutes)
         let point = AidexGlucosePoint(
             timestamp: sampleTime,
-            glucoseMgDl: Float(fallbackGlucose),
+            glucoseMgDl: Float(glucoseMgDl),
             rawMgDl: nil,
             sensorGlucoseMgDl: nil,
             rawI1: nil,
@@ -1068,7 +1288,7 @@ public final class AidexSensor: NSObject, ObservableObject {
             startHistoryAfterFirstLiveReading()
         }
 
-        print("[Aidex-DEBUG] F002 broadcast glucose delegate dispatch offsetMin=\(offsetMinutes) timestamp=\(sampleTime.timeIntervalSince1970) glucoseMgDl=\(fallbackGlucose)")
+        print("[Aidex-DEBUG] F002 broadcast glucose delegate dispatch offsetMin=\(offsetMinutes) timestamp=\(sampleTime.timeIntervalSince1970) glucoseMgDl=\(glucoseMgDl)")
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.delegate?.aidex(self, didReceive: point)
@@ -1119,7 +1339,13 @@ public final class AidexSensor: NSObject, ObservableObject {
     }
 
     func handleHistoryRawResponse(_ data: Data) {
-        let entries = AidexParser.parseHistoryResponse(data)
+        guard data.count >= 4 else {
+            print("[Aidex-DEBUG] F002 0x23 history raw rejected reason=too-short bytes=\(data.count)")
+            return
+        }
+        // [op, status, startOffset u16LE, N×2B rows] — payload после заголовка
+        let payload = data.subdata(in: 2..<data.count)
+        let entries = AidexParser.parseHistoryResponse(payload)
         print("[Aidex-DEBUG] F002 0x23 history page bytes=\(data.count) entries=\(entries.count) nextOffset=\(historyRawNextIndex)")
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -1138,7 +1364,13 @@ public final class AidexSensor: NSObject, ObservableObject {
     }
 
     func handleHistoryBriefResponse(_ data: Data) {
-        let entries = AidexParser.parseBriefHistoryResponse(data)
+        guard data.count >= 7 else {
+            print("[Aidex-DEBUG] F002 0x24 history brief rejected reason=too-short bytes=\(data.count)")
+            return
+        }
+        // [op, status, startOffset u16LE, N×5B rows] — payload после заголовка
+        let payload = data.subdata(in: 2..<data.count)
+        let entries = AidexParser.parseBriefHistoryResponse(payload)
         print("[Aidex-DEBUG] F002 0x24 history page bytes=\(data.count) entries=\(entries.count) nextOffset=\(historyBriefNextIndex)")
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -1166,7 +1398,14 @@ public final class AidexSensor: NSObject, ObservableObject {
     }
 
     func handleCalibrationResponse(_ data: Data) {
-        let records = AidexParser.parseCalibrationResponse(data)
+        guard data.count >= 10 else {
+            print("[Aidex-DEBUG] F002 0x27 calibration rejected reason=too-short bytes=\(data.count)")
+            return
+        }
+        // [op, status, startIndex u16LE, N×8B rows, CRC-16]
+        let payloadEnd = data.count >= 4 ? data.count - 2 : data.count
+        let payload = data.subdata(in: 2..<payloadEnd)
+        let records = AidexParser.parseCalibrationResponse(payload)
         print("[Aidex-DEBUG] F002 0x27 calibration records=\(records.count) bytes=\(data.count)")
         calibrations = records
         DispatchQueue.main.async { [weak self] in
@@ -1254,7 +1493,7 @@ public final class AidexSensor: NSObject, ObservableObject {
             return
         }
 
-        print("[Aidex-DEBUG] F002 TX opcode=0x27 calibration offset=\(lastOffsetMinutes) bytes=\(cmd.count)")
+        print("[Aidex-DEBUG] F002 TX opcode=0x25 calibration offset=\(lastOffsetMinutes) bytes=\(cmd.count)")
         statusMessage = "Calibrating..."
         bleQueue.async { [weak self] in
             guard let self else { return }

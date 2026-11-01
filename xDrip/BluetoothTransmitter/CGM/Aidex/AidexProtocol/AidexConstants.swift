@@ -49,17 +49,27 @@ public enum AidexUUID {
 
     public static let serviceDIS = "0000180A-0000-1000-8000-00805F9B34FB"
     public static let manufacturerID: UInt16 = 0x0059
-    public static let knownNamePrefixes = ["AiDex", "AiDEX", "AIDEX", "Linx", "LINX", "Lumi", "CGM"]
+    /// known-name prefix'ы (`isAiDexDevice`, Aidex.md §1 / Kotlin
+    /// `AiDexOpcodes.KNOWN_NAME_PREFIXES` 1:1) — только ярлык-скорый reject
+    /// при сканировании; семейство `LUMI/VISTA` в identity не входит.
+    public static let knownNamePrefixes = [
+        "AiDex", "AiDEX", "AIDEX", "Linx", "LINX", "CGM", "Smart-", "IndiaX-"
+    ]
 }
 
-/// Scaling factor для F003 opcode.
+/// Scaling factor для opcode 17B data frame (F003).
+///
+/// - `0xA1, 0xA4, 0x5B, 0xD7` — direct mg/dL, factor 1.0;
+/// - `0xD2` — factor 0.5;
+/// - любое другое значение — это **не glucose frame** (drop, не парсить как глюкозу).
 let directScaleOpcodes: Set<UInt8> = [0xA1, 0xA4, 0x5B, 0xD7]
 let halfScaleOpcodes: Set<UInt8> = [0xD2]
 
-func scalingFactor(for opcode: UInt8) -> Float {
+/// `nil` — opcode не является scale-code glucose frame (не парсить как глюкозу).
+func scalingFactor(for opcode: UInt8) -> Float? {
     if directScaleOpcodes.contains(opcode) { return 1.0 }
     if halfScaleOpcodes.contains(opcode) { return 0.5 }
-    return 1.0
+    return nil
 }
 
 /// Таймауты (миллисекунды).
@@ -79,6 +89,13 @@ enum AidexTimeout {
     static let warmupDuration: UInt64 = 7 * 60_000
     static let bondingSettle: UInt64 = 500
     static let mtusettle: UInt64 = 200
+
+    // Reconnect-ladder (Android Kotlin AiDexReconnect 1:1):
+    // 1st attempt — base 2.5 s (adaptive bump ≤ 5 s), 2nd+ — fallback 5 s,
+    // competing session — 20 s.
+    static let reconnectBase: UInt64 = 2_500
+    static let reconnectFallback: UInt64 = 5_000
+    static let competingSession: UInt64 = 20_000
 
     // Вещественные
     static var warmupDurationSec: TimeInterval { Double(warmupDuration) / 1000.0 }

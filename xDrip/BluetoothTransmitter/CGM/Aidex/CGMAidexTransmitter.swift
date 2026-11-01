@@ -401,7 +401,10 @@ class CGMAidexTransmitter: BluetoothTransmitter, CGMTransmitter {
     }
 
     func maxSensorAgeInDays() -> Double? {
-        return wearDays > 0 ? Double(wearDays) : nil
+        // (Kotlin getDisplayWearDays): байт 0x10 → remembered-байт прошлой связи
+        // → рейтинг модели из каталога (AidexWearProfile).
+        let days = aidexSensor?.displayWearDays ?? (wearDays > 0 ? wearDays : 0)
+        return days > 0 ? Double(days) : nil
     }
 
     func startSensor(sensorCode: String?, startDate: Date) {

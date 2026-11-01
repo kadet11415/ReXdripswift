@@ -21,12 +21,24 @@ enum AidexParser {
     // MARK: - 17-byte Data Frame
 
     /// Парсинг 17-байтового дешифрованного F003-фрейма.
+    ///
+    /// Layout:
+    /// - `byte[0]` — opcode (scaling / тип фрейма);
+    /// - `bytes[1..3]` — неопознанные (не-ноль, меняются от кадра к кадру);
+    /// - `bytes[4..5]` — `timeOffsetMinutes` (u16 LE) — минуты с момента старта
+    ///   сенсора — тот же u16, что и в history 0x23/0x24/0x27 и калиб-пейлодах;
+    /// - `bytes[6..7]` — `glucosePacked` (u16 LE), `glucose = packed & 0x03FF` (10-bit);
+    /// - `bytes[8..9]` — `i1` (u16 LE / 100), `bytes[10..11]` — `i2` (u16 LE / 100) — raw-каналы;
+    /// - `bytes[15..16]` — CRC-16/CCITT-FALSE (u16 LE).
+    ///
+    /// Раньше поле времени читалось как u32-секунды на `bytes[1..4]` — это давало
+    /// десятки миллионов "минут" на каждой прошивке, из-за чего драйвер тащил
+    /// "garbage timing bytes" workaround. Поле — это u16 LE минут на `bytes[4..5]`.
     static func parseDataFrame(_ data: Data) -> GlucoseFrame? {
         guard data.count == AidexFrame.dataFrameLength else { return nil }
 
         let opcode = data[0]
-        let seconds = UInt32(littleEndianData: data.subdata(in: 1..<5))
-        let timeOffsetMinutes = Int(seconds / 60)
+        let timeOffsetMinutes = Int(data.subdata(in: 4..<6).toU16LE())
         let glucosePacked = Int(data.subdata(in: 6..<8).toU16LE())
         let rawGlucose = glucosePacked & AidexFrame.glucoseMask
         let i1Raw = Int(data.subdata(in: 8..<10).toU16LE())
@@ -35,7 +47,9 @@ enum AidexParser {
 
         let i1 = Float(i1Raw) / 100.0
         let i2 = Float(i2Raw) / 100.0
-        let scale = scalingFactor(for: opcode)
+        // Неизвестный opcode — не glucose frame; парсится raw-значение без scaling,
+        // а решение o-приём/отбраковка принимает обработчик (см. scalingFactor(for:)).
+        let scale = scalingFactor(for: opcode) ?? 1.0
         let glucoseMgDl = Float(rawGlucose) * scale
 
         let isSentinel = rawGlucose == AidexFrame.sentinelGlucose
@@ -61,6 +75,52 @@ enum AidexParser {
         let payload = decrypted.prefix(15)
         let frameCRC = decrypted.subdata(in: 15..<17).toU16LE()
         return CRC16.checksum(payload) == frameCRC
+    }
+
+    // MARK: - Broadcast Sample (0x11 response / advertising record)
+
+    /// Образец broadcast-глюкозы (GATT-ответ 0x11 или запись advertising в
+    /// broadcast-only режиме). Минимум 7 байт:
+    /// - `[0..3]` — offset u32LE (валидация `0 < off <= 30д*1440`); при невалидном —
+    ///   fallback u16LE `[0..1]`;
+    /// - `[4]` — trend (1B, без расшифровки — только значение);
+    /// - `glucose` — 10-bit пакетирование: `byte[5] | ((byte[6] & 0x03) << 8)`;
+    ///   fallback — простой `byte[5]`;
+    /// - принимается первое значение (packed, потом fallback) в диапазоне 20..500;
+    ///   вне диапазона — reject.
+    struct BroadcastSample {
+        let offsetMinutes: Int
+        let trend: Int
+        let glucoseMgDl: Int
+    }
+
+    static func parseBroadcastSamplePayload(_ payload: Data) -> BroadcastSample? {
+        guard payload.count >= 7 else { return nil }
+
+        let offsetCandidate = Int(payload.subdata(in: 0..<4).toU32LE(at: 0))
+        let maxOffsetMinutes = 30 * 24 * 60
+        let offsetMinutes: Int
+        if offsetCandidate > 0, offsetCandidate <= maxOffsetMinutes {
+            offsetMinutes = offsetCandidate
+        } else {
+            offsetMinutes = Int(payload.subdata(in: 0..<2).toU16LE(at: 0))
+        }
+        guard offsetMinutes > 0, offsetMinutes <= maxOffsetMinutes else { return nil }
+
+        let trend = Int(payload[4])
+        let packed = Int(payload[5]) | ((Int(payload[6]) & 0x03) << 8)
+        let fallback = Int(payload[5])
+
+        let glucoseMgDl: Int
+        if (AidexFrame.minValidGlucose...AidexFrame.maxValidGlucose).contains(packed) {
+            glucoseMgDl = packed
+        } else if (AidexFrame.minValidGlucose...AidexFrame.maxValidGlucose).contains(fallback) {
+            glucoseMgDl = fallback
+        } else {
+            return nil
+        }
+
+        return BroadcastSample(offsetMinutes: offsetMinutes, trend: trend, glucoseMgDl: glucoseMgDl)
     }
 
     // MARK: - History Parsing
@@ -119,23 +179,26 @@ enum AidexParser {
 
     // MARK: - GET_HISTORY_RANGE (0x22)
 
+    /// Ответ GET_HISTORIES_RANGE (0x22) — полный фрейм
+    /// `[op, ack, briefStart u16LE, rawStart u16LE, newestOffset u16LE]` (§4.4).
     static func parseHistoryRange(_ data: Data) -> HistoryRange? {
-        guard data.count >= 6 else { return nil }
+        guard data.count >= 8 else { return nil }
         return HistoryRange(
-            briefStart: Int(data.subdata(in: 0..<2).toU16LE()),
-            rawStart: Int(data.subdata(in: 2..<4).toU16LE()),
-            newestOffset: Int(data.subdata(in: 4..<6).toU16LE())
+            briefStart: Int(data.subdata(in: 2..<4).toU16LE()),
+            rawStart: Int(data.subdata(in: 4..<6).toU16LE()),
+            newestOffset: Int(data.subdata(in: 6..<8).toU16LE())
         )
     }
 
     // MARK: - Calibration
 
-    /// GET_CALIBRATION_RANGE (0x26).
+    /// Ответ GET_CALIBRATION_RANGE (0x26) — полный фрейм:
+    /// `[op, ack, startIdx u16LE, newestIdx u16LE]` (§4.4/§12).
     static func parseCalibrationRange(_ data: Data) -> CalibrationRange? {
-        guard data.count >= 4 else { return nil }
+        guard data.count >= 6 else { return nil }
         return CalibrationRange(
-            startIndex: Int(data.subdata(in: 0..<2).toU16LE()),
-            endIndex: Int(data.subdata(in: 2..<4).toU16LE())
+            startIndex: Int(data.subdata(in: 2..<4).toU16LE()),
+            endIndex: Int(data.subdata(in: 4..<6).toU16LE())
         )
     }
 
@@ -155,6 +218,9 @@ enum AidexParser {
             let timeOffset = Int(body.subdata(in: off..<off+2).toU16LE())
             let reference = Int(body.subdata(in: off+2..<off+4).toU16LE())
             let cfRaw = Int(body.subdata(in: off+4..<off+6).toU16LE())
+            // offset — SIGNED (s16 LE) по §12/§4.4 (Kotlin `s16LE(data, off + 6)`):
+            // отрицательные offset'ы кодируются 0xFFxx; u16LE читал их как
+            // +655xx → /100 = +655 вместо −0.5x.
             let offsetRaw = Int(body.subdata(in: off+6..<off+8).toS16LE())
             return CalibrationRecord(
                 index: startIndex + i,
@@ -170,7 +236,17 @@ enum AidexParser {
 
     static func parseStartupDeviceInfoPayload(_ payload: Data) -> StartupDeviceInfo? {
         guard payload.count >= 16 else { return nil }
-        guard payload.subdata(in: 0..<2).toU16LE() == 0 else { return nil }
+        guard payload.subdata(in: 0..<2).toU16LE(at: 0) == 0 else { return nil }
+        return parseStartupDeviceInfoBody(payload)
+    }
+
+    /// Тело 0x10-ответа (Kotlin `parseStartupDeviceInfoBody`):
+    /// `[status u16 [0..1] (здесь не проверяется) | fw_major[2] fw_minor[3] |
+    ///  hw_major[4] hw_minor[5] | wear_days[6] | modelCode[7] | model ASCII 8..NUL]`.
+    /// Используется для ACK-варианта, где status может быть non-zero
+    /// (например: fw 1.7.1 Lumi GX-01S ответил 0x8000).
+    static func parseStartupDeviceInfoBody(_ payload: Data) -> StartupDeviceInfo? {
+        guard payload.count >= 16 else { return nil }
 
         let fwMajor = Int(payload[2])
         let fwMinor = Int(payload[3])
@@ -191,19 +267,41 @@ enum AidexParser {
         )
     }
 
+    /// 0x10-фрейм с опциональным CRC-trailer'ом.
+    ///
+    /// Frame-варианты (§12, Kotlin `parseStartupDeviceInfoFrame`):
+    /// 1) payload = frame[1..payloadEnd) — стандартный;
+    /// 2) body = frame[2..payloadEnd) как payload (status = body[0..2]);
+    /// 3) ACK-вариант: `frame[1]==0x01`, body = frame[2..payloadEnd) — status
+    ///    non-zero допустим (model code, напр. 0x8000); имя модели —
+    ///    printable ASCII.
+    ///
+    /// CRC-16/CCITT-FALSE проверяется над всеми предыдущими байтами (LE):
+    /// при валидном — срезается (payloadEnd = size-2).
     static func parseStartupDeviceInfoFrame(_ frame: Data, payloadEndExclusive: Int? = nil) -> StartupDeviceInfo? {
         let end = payloadEndExclusive ?? frame.count
         guard end > 1, end <= frame.count else { return nil }
 
-        // F002 responses are opcode + payload + little-endian CRC. Validate the
-        // complete response before excluding framing bytes from metadata parsing.
         let response = frame.prefix(end)
         guard end >= 3, CRC16.validateResponse(Data(response)) else { return nil }
         let payloadEnd = end - 2
-        let payloadStart = frame[0] == AidexOpcode.getStartupDeviceInfo.rawValue ? 1 : 0
-        guard payloadEnd > payloadStart else { return nil }
-        let payload = frame.subdata(in: payloadStart..<payloadEnd)
-        return parseStartupDeviceInfoPayload(payload)
+
+        // 1) payload от 1
+        if let info = parseStartupDeviceInfoPayload(frame.subdata(in: 1..<payloadEnd)) {
+            return info
+        }
+        // 2) body от 2 как payload
+        guard payloadEnd > 2 else { return nil }
+        if let info = parseStartupDeviceInfoPayload(frame.subdata(in: 2..<payloadEnd)) {
+            return info
+        }
+        // 3) ACK-вариант: frame[1] == 0x01, body от 2 (status/model-code может быть non-zero)
+        guard frame[1] == 0x01 else { return nil }
+        if let info = parseStartupDeviceInfoBody(frame.subdata(in: 2..<payloadEnd)) {
+            let printable = info.modelName.unicodeScalars.allSatisfy { $0.value >= 0x20 && $0.value <= 0x7E }
+            if printable { return info }
+        }
+        return nil
     }
 
     // MARK: - Session Start Time
