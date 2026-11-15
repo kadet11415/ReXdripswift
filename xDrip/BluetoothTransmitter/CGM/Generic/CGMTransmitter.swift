@@ -287,12 +287,13 @@ enum CGMTransmitterType:String, CaseIterable {
             
         case .miaomiao, .Bubble, .Libre2:
             return true
+
         case .dexcomG7, .Libre3:
             return false
 
         case .ottai:
-            // "start sensor" starts the Ottai activation. It cannot be undone.
-            return true
+            // Start and change sensors through the Ottai setup screen.
+            return false
 
         case .medtrumTouchCareNano:
             // EasyPatch owns sensor lifecycle. xDrip should not offer a manual start UI.

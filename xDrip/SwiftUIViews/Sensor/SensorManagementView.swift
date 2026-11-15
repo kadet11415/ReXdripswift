@@ -600,11 +600,7 @@ struct SensorManagementView: View {
         let warmupMinutes: Double?
         switch sensorType {
         case .Libre:
-            // Ottai/Syai maps to the Libre sensor type but has its own 30-minute warm-up.
-            // Other Libre sources use the duration reported by the transmitter, with a fallback.
-            warmupMinutes = transmitter?.cgmTransmitterType() == .ottai
-                ? ConstantsMaster.minimumSensorWarmUpRequiredInMinutesOttai
-                : (transmitter?.sensorWarmupDurationInMinutes() ?? ConstantsMaster.minimumSensorWarmUpRequiredInMinutes)
+            warmupMinutes = transmitter?.sensorWarmupDurationInMinutes() ?? ConstantsMaster.minimumSensorWarmUpRequiredInMinutes
         case .Dexcom:
             if transmitterType == .dexcomG7 {
                 warmupMinutes = ConstantsMaster.minimumSensorWarmUpRequiredInMinutesDexcomG7
@@ -746,6 +742,8 @@ struct SensorManagementView: View {
             sensorActionNote = Texts_HomeView.sensorManagementNotAvailableInFollower
         } else if transmitter == nil {
             sensorActionNote = Texts_HomeView.sensorManagementNoTransmitterNote
+        } else if transmitter?.cgmTransmitterType() == .ottai {
+            sensorActionNote = "Start or change this sensor in Bluetooth > Ottai/Syai. Warmup continues automatically."
         } else if !(transmitter?.cgmTransmitterType().allowManualSensorStart() ?? false) {
             sensorActionNote = Texts_HomeView.sensorManagementAutomaticSessionNote
         } else {
