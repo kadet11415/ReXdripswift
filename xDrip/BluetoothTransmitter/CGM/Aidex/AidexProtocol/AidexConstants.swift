@@ -53,7 +53,7 @@ public enum AidexUUID {
     /// `AiDexOpcodes.KNOWN_NAME_PREFIXES` 1:1) — только ярлык-скорый reject
     /// при сканировании; семейство `LUMI/VISTA` в identity не входит.
     public static let knownNamePrefixes = [
-        "AiDex", "AiDEX", "AIDEX", "Linx", "LINX", "CGM", "Smart-", "IndiaX-"
+        "AiDex", "AiDEX", "AIDEX", "Linx", "LINX", "Lumi", "CGM", "Smart-", "IndiaX-"
     ]
 }
 
