@@ -174,18 +174,18 @@ class BluetoothPeripheralManager: NSObject {
                         _ = m5StackBluetoothTransmitter.writeBgReadingInfo(bgReading: bgReadingToSend[0])
                     }
                     
-                case .DexcomType, .BubbleType, .MiaoMiaoType, .Libre2Type, .Libre3Type, .DexcomG7Type, .MedtrumTouchCareNanoType:
+                case .DexcomType, .BubbleType, .MiaoMiaoType, .Libre2Type, .Libre3Type, .DexcomG7Type, .OttaiType, .MedtrumTouchCareNanoType, .AidexType:
                     // cgm's don't receive reading, they send it
                     break
-                    
+
                 case .Libre3HeartBeatType, .DexcomG7HeartBeatType, .OmniPodHeartBeatType:
                     // heartbeat transmitters are just there to wake up the app
                     break
-                    
+
                 }
 
             }
-   
+
         }
     }
 
@@ -360,9 +360,25 @@ class BluetoothPeripheralManager: NSObject {
                         }
                         
                     }
-                    
+
+                case .OttaiType:
+
+                    if let ottai = bluetoothPeripheral as? Ottai {
+
+                        if let cgmTransmitterDelegate = cgmTransmitterDelegate {
+
+                            newTransmitter = CGMOttaiTransmitter(address: ottai.blePeripheral.address, name: ottai.blePeripheral.name, sensorId: ottai.ottaiSensorId ?? "", bluetoothTransmitterDelegate: self, cGMTransmitterDelegate: cgmTransmitterDelegate)
+
+                        } else {
+
+                            trace("in getBluetoothTransmitter, case OttaiType but cgmTransmitterDelegate is nil, looks like a coding error ", log: log, category: ConstantsLog.categoryBluetoothPeripheralManager, type: .error)
+
+                        }
+
+                    }
+
                 case .Libre3HeartBeatType:
-                    
+
                     if let libre2heartbeat = bluetoothPeripheral as? Libre2HeartBeat {
                         
                         if let transmitterId = libre2heartbeat.blePeripheral.transmitterId {
@@ -412,6 +428,21 @@ class BluetoothPeripheralManager: NSObject {
                         } else {
 
                             trace("in getBluetoothTransmitter, case MedtrumTouchCareNanoType but cgmTransmitterDelegate is nil, looks like a coding error ", log: log, category: ConstantsLog.categoryBluetoothPeripheralManager, type: .error)
+
+                        }
+                    }
+
+                case .AidexType:
+
+                    if let aidex = bluetoothPeripheral as? Aidex {
+
+                        if let cgmTransmitterDelegate = cgmTransmitterDelegate {
+
+                            newTransmitter = CGMAidexTransmitter(address: aidex.blePeripheral.address, name: aidex.blePeripheral.name, bluetoothTransmitterDelegate: self, cGMAidexTransmitterDelegate: self, sensorSerialNumber: aidex.blePeripheral.sensorSerialNumber, cGMTransmitterDelegate: cgmTransmitterDelegate, nonFixedSlopeEnabled: nil, webOOPEnabled: nil)
+
+                        } else {
+
+                            trace("in getBluetoothTransmitter, case AidexType but cgmTransmitterDelegate is nil, looks like a coding error ", log: log, category: ConstantsLog.categoryBluetoothPeripheralManager, type: .error)
 
                         }
                     }
@@ -474,7 +505,12 @@ class BluetoothPeripheralManager: NSObject {
                 if bluetoothTransmitter is CGMLibre2Transmitter {
                     return .Libre2Type
                 }
-                
+
+            case .OttaiType:
+                if bluetoothTransmitter is CGMOttaiTransmitter {
+                    return .OttaiType
+                }
+
             case .Libre3HeartBeatType:
                 if bluetoothTransmitter is Libre3HeartBeatBluetoothTransmitter {
                     return .Libre3HeartBeatType
@@ -498,6 +534,11 @@ class BluetoothPeripheralManager: NSObject {
             case .MedtrumTouchCareNanoType:
                 if bluetoothTransmitter is CGMMedtrumTouchCareNanoTransmitter {
                     return .MedtrumTouchCareNanoType
+                }
+
+            case .AidexType:
+                if bluetoothTransmitter is CGMAidexTransmitter {
+                    return .AidexType
                 }
                 
             }
@@ -557,7 +598,19 @@ class BluetoothPeripheralManager: NSObject {
             }
             
             return CGMLibre2Transmitter(address: nil, name: nil, bluetoothTransmitterDelegate: bluetoothTransmitterDelegate ?? self, cGMLibre2TransmitterDelegate: self, sensorSerialNumber: nil, cGMTransmitterDelegate: cgmTransmitterDelegate, nonFixedSlopeEnabled: nil, webOOPEnabled: nil)
-            
+
+        case .OttaiType:
+
+            guard let cgmTransmitterDelegate = cgmTransmitterDelegate else {
+                fatalError("in createNewTransmitter, OttaiType, cgmTransmitterDelegate is nil")
+            }
+
+            // A normal scan does not know the Ottai cloud id. The setup screen saves it
+            // (login or JSON import), and we take the last saved sensor here.
+            let stagedSensorId = OttaiRegistry.persistedRecords().last?.sensorId ?? ""
+
+            return CGMOttaiTransmitter(address: nil, name: nil, sensorId: stagedSensorId, bluetoothTransmitterDelegate: bluetoothTransmitterDelegate ?? self, cGMTransmitterDelegate: cgmTransmitterDelegate)
+
         case .Libre3HeartBeatType:
             
             guard let transmitterId = transmitterId else {
@@ -593,6 +646,14 @@ class BluetoothPeripheralManager: NSObject {
             }
 
             return CGMMedtrumTouchCareNanoTransmitter(address: nil, name: nil, bluetoothTransmitterDelegate: bluetoothTransmitterDelegate ?? self, cGMTransmitterDelegate: cgmTransmitterDelegate)
+
+        case .AidexType:
+
+            guard let cgmTransmitterDelegate = cgmTransmitterDelegate else {
+                fatalError("in createNewTransmitter, AidexType, cgmTransmitterDelegate is nil")
+            }
+
+            return CGMAidexTransmitter(address: nil, name: nil, bluetoothTransmitterDelegate: bluetoothTransmitterDelegate ?? self, cGMAidexTransmitterDelegate: self, sensorSerialNumber: nil, cGMTransmitterDelegate: cgmTransmitterDelegate, nonFixedSlopeEnabled: nil, webOOPEnabled: nil)
             
         }
         
@@ -934,12 +995,37 @@ class BluetoothPeripheralManager: NSObject {
                         
                         
                     }
-                    
+
+                case .OttaiType:
+
+                    if let ottai = blePeripheral.ottai {
+
+                        blePeripheralFound = true
+
+                        // add it to the list of bluetoothPeripherals
+                        let index = insertInBluetoothPeripherals(bluetoothPeripheral: ottai)
+
+                        if ottai.blePeripheral.shouldconnect {
+
+                            bluetoothTransmitters.insert(CGMOttaiTransmitter(address: ottai.blePeripheral.address, name: ottai.blePeripheral.name, sensorId: ottai.ottaiSensorId ?? "", bluetoothTransmitterDelegate: self, cGMTransmitterDelegate: cgmTransmitterDelegate), at: index)
+
+                            if bluetoothPeripheralType.category() == .CGM {
+                                currentCgmTransmitterAddress = blePeripheral.address
+                            }
+
+                        } else {
+
+                            bluetoothTransmitters.insert(nil, at: index)
+
+                        }
+
+                    }
+
                 case .Libre3HeartBeatType:
                     if let libre2heartbeat = blePeripheral.libre2heartbeat {
-                        
+
                         blePeripheralFound = true
-                        
+
                         // add it to the list of bluetoothPeripherals
                         let index = insertInBluetoothPeripherals(bluetoothPeripheral: libre2heartbeat)
                         
@@ -1055,6 +1141,30 @@ class BluetoothPeripheralManager: NSObject {
                         if medtrumNano.blePeripheral.shouldconnect {
 
                             bluetoothTransmitters.insert(CGMMedtrumTouchCareNanoTransmitter(address: medtrumNano.blePeripheral.address, name: medtrumNano.blePeripheral.name, bluetoothTransmitterDelegate: self, cGMTransmitterDelegate: cgmTransmitterDelegate), at: index)
+
+                            if bluetoothPeripheralType.category() == .CGM {
+                                currentCgmTransmitterAddress = blePeripheral.address
+                            }
+
+                        } else {
+
+                            bluetoothTransmitters.insert(nil, at: index)
+
+                        }
+
+                    }
+
+                case .AidexType:
+
+                    if let aidex = blePeripheral.aidex {
+
+                        blePeripheralFound = true
+
+                        let index = insertInBluetoothPeripherals(bluetoothPeripheral: aidex)
+
+                        if aidex.blePeripheral.shouldconnect {
+
+                            bluetoothTransmitters.insert(CGMAidexTransmitter(address: aidex.blePeripheral.address, name: aidex.blePeripheral.name, bluetoothTransmitterDelegate: self, cGMAidexTransmitterDelegate: self, sensorSerialNumber: aidex.blePeripheral.sensorSerialNumber, cGMTransmitterDelegate: cgmTransmitterDelegate, nonFixedSlopeEnabled: nil, webOOPEnabled: nil), at: index)
 
                             if bluetoothPeripheralType.category() == .CGM {
                                 currentCgmTransmitterAddress = blePeripheral.address
@@ -1187,7 +1297,7 @@ class BluetoothPeripheralManager: NSObject {
                     bluetoothPeripheral.blePeripheral.parameterUpdateNeededAtNextConnect = true
                 }
              
-            case .DexcomType, .BubbleType, .MiaoMiaoType, .Libre2Type, .Libre3Type, .Libre3HeartBeatType, .DexcomG7HeartBeatType, .OmniPodHeartBeatType, .DexcomG7Type, .MedtrumTouchCareNanoType:
+            case .DexcomType, .BubbleType, .MiaoMiaoType, .Libre2Type, .Libre3Type, .Libre3HeartBeatType, .DexcomG7HeartBeatType, .OmniPodHeartBeatType, .DexcomG7Type, .OttaiType, .MedtrumTouchCareNanoType, .AidexType:
 
                 // nothing to check
                 break
@@ -1211,6 +1321,24 @@ extension BluetoothPeripheralManager: BluetoothPeripheralManaging {
             cgmTransmitter.requestNewReading()
         }
         
+    }
+
+    func aidexResetSensor() {
+        guard let aidex = getCGMTransmitter() as? CGMAidexTransmitter else {
+            trace("aidexResetSensor: no Aidex transmitter found", log: log, category: ConstantsLog.categoryBluetoothPeripheralManager, type: .error)
+            return
+        }
+        trace("aidexResetSensor: calling resetSensor()", log: log, category: ConstantsLog.categoryBluetoothPeripheralManager, type: .info)
+        aidex.resetSensor()
+    }
+
+    func aidexUnpairSensor() {
+        guard let aidex = getCGMTransmitter() as? CGMAidexTransmitter else {
+            trace("aidexUnpairSensor: no Aidex transmitter found", log: log, category: ConstantsLog.categoryBluetoothPeripheralManager, type: .error)
+            return
+        }
+        trace("aidexUnpairSensor: calling unpairSensor()", log: log, category: ConstantsLog.categoryBluetoothPeripheralManager, type: .info)
+        aidex.unpairSensor()
     }
 
     func getCGMTransmitter() -> CGMTransmitter? {
@@ -1284,6 +1412,26 @@ extension BluetoothPeripheralManager: BluetoothPeripheralManaging {
         transmitterTypeBeingScannedFor = type
         
         tempBlueToothTransmitterWhileScanningForNewBluetoothPeripheral = newBluetoothTranmsitter
+        
+        // For Aidex: use scan-only mode — collect all devices first, then let user choose.
+        if type == .AidexType, let aidexTransmitter = newBluetoothTranmsitter as? CGMAidexTransmitter {
+            self.callBackForScanningResult = callBackForScanningResult
+            if let callBackForScanningResult = callBackForScanningResult {
+                callBackForScanningResult(.success)
+            }
+            aidexTransmitter.scanForDevices()
+            return
+        }
+
+        // For Ottai: use scan-only mode — collect all devices first, then let user choose.
+        if type == .OttaiType, let ottaiTransmitter = newBluetoothTranmsitter as? CGMOttaiTransmitter {
+            self.callBackForScanningResult = callBackForScanningResult
+            if let callBackForScanningResult = callBackForScanningResult {
+                callBackForScanningResult(.success)
+            }
+            ottaiTransmitter.scanForDevices()
+            return
+        }
         
         // start scanning
         let scanningResult = newBluetoothTranmsitter.startScanning()

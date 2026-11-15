@@ -41,7 +41,9 @@ enum TroubleshootingLogSource: String, Codable {
     case libre3
     case libre2EU
     case libre2PlusEU
+    case ottai
     case medtrumNano
+    case aidex
     case nightscout
     case libreLinkUp
     case libreLinkUpRussia
@@ -95,8 +97,12 @@ enum TroubleshootingLogSource: String, Codable {
         case .Libre3: self = .libre3
         case .Libre2:
             self = description == "Libre 2 Plus EU" ? .libre2PlusEU : .libre2EU
+        case .ottai:
+            self = .ottai
         case .medtrumTouchCareNano:
             self = .medtrumNano
+        case .Aidex:
+            self = .aidex
         }
     }
 
@@ -131,8 +137,12 @@ enum TroubleshootingLogSource: String, Codable {
         case .Libre3Type: self = .libre3
         case .Libre2Type:
             self = .libre2
+        case .OttaiType:
+            self = .ottai
         case .MedtrumTouchCareNanoType:
             self = .medtrumNano
+        case .AidexType:
+            self = .aidex
         case .M5StackType, .M5StickCType, .Libre3HeartBeatType,
              .DexcomG7HeartBeatType, .OmniPodHeartBeatType:
             return nil
@@ -155,7 +165,9 @@ enum TroubleshootingLogSource: String, Codable {
         case .libre2: return "Libre 2/2+ EU"
         case .libre2EU: return "Libre 2 EU"
         case .libre2PlusEU: return "Libre 2 Plus EU"
+        case .ottai: return "Ottai/Syai CGM"
         case .medtrumNano: return "Medtrum Nano Pump CGM"
+        case .aidex: return "AiDex/Linx/LumiFlex"
         case .nightscout: return "Nightscout"
         case .libreLinkUp: return "LibreLinkUp"
         case .libreLinkUpRussia: return "LibreLinkUp Russia"
@@ -175,7 +187,7 @@ enum TroubleshootingLogSource: String, Codable {
             return true
         case .dexcom, .dexcomG5, .dexcomG6, .dexcomOne, .dexcomG7, .dexcomOnePlus,
              .dexcomStelo, .miaoMiao, .bubble, .libre3, .libre2, .libre2EU, .libre2PlusEU,
-             .medtrumNano:
+             .ottai, .medtrumNano, .aidex:
             return false
         }
     }

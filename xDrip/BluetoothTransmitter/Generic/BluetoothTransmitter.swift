@@ -65,6 +65,17 @@ class BluetoothTransmitter: NSObject, CBCentralManagerDelegate, CBPeripheralDele
         }
     }
 
+    /// RSSI entry point for transmitters that own their own CBPeripheral (Aidex/Linx/Lumiflex),
+    /// whose Core Bluetooth callbacks never reach the base class's didReadRSSI. Records through
+    /// the shared path so the signal-strength chart, gauge and parent indicator all update —
+    /// same effect as peripheral(_:didReadRSSI:error:) — and publishes the change.
+    func reportRSSIMeasurement(rssi: Int, connected: Bool) {
+        signalStrengthLock.lock()
+        signalStrengthConnected = connected
+        signalStrengthLock.unlock()
+        _ = recordSignalStrength(rssi)
+    }
+
     /// Called only from normal Bluetooth value callbacks on centralQueue. No timer or delayed retry.
     /// The identity check excludes obsolete peripherals without interrupting their caller's protocol handling.
     final func requestSignalStrengthForTraceIfNeeded(from peripheral: CBPeripheral) {
@@ -120,10 +131,10 @@ class BluetoothTransmitter: NSObject, CBCentralManagerDelegate, CBPeripheralDele
     private var shouldReconnectOnNextDisconnect = true
     
     /// the address of the transmitter. If nil then transmitter never connected, so we don't know the address.
-    private(set) var deviceAddress:String?
+    internal(set) var deviceAddress:String?
     
     /// the name of the transmitter. If nil then transmitter never connected, so we don't know the name
-    private(set) var deviceName:String?
+    internal(set) var deviceName:String?
     
     /// uuid used for scanning, can be empty string, if empty string then scan all devices - only possible if app is in foreground
     private let CBUUID_Advertisement:String?
@@ -388,6 +399,13 @@ class BluetoothTransmitter: NSObject, CBCentralManagerDelegate, CBPeripheralDele
                 forget()
             }
         }
+    }
+
+    /// Subclasses can refuse a discovered peripheral (return false to keep scanning).
+    /// Used by drivers that must move away from a wrong physical device that has the
+    /// same name and advertisement as the right one (e.g. an old Ottai/Syai sensor).
+    func shouldConnectToDiscoveredPeripheral(_ peripheral: CBPeripheral) -> Bool {
+        return true
     }
 
     /// stops scanning
@@ -724,6 +742,12 @@ class BluetoothTransmitter: NSObject, CBCentralManagerDelegate, CBPeripheralDele
         }
         trace("in didDiscover, found peripheral with name: %{public}@", log: log, category: ConstantsLog.categoryBlueToothTransmitter, type: .info, String(describing: deviceName))
         
+        // give the subclass a chance to refuse this device (e.g. a wrong physical sensor with the same name)
+        guard shouldConnectToDiscoveredPeripheral(peripheral) else {
+            trace("in didDiscover, subclass refused peripheral %{public}@, keep scanning", log: log, category: ConstantsLog.categoryBlueToothTransmitter, type: .info, peripheral.identifier.uuidString)
+            return
+        }
+        
         // check if stored address not nil, in which case we already connected before and we expect a full match with the already known device name
         if let deviceAddress = deviceAddress {
             if peripheral.identifier.uuidString == deviceAddress {
@@ -992,9 +1016,17 @@ class BluetoothTransmitter: NSObject, CBCentralManagerDelegate, CBPeripheralDele
             requestSignalStrengthForTraceIfNeeded(from: peripheral)
         }
         
-        // trace the received value
+        // trace the received value, excluding protected Aidex protocol characteristics
+        // which may contain pairing keys, bond material, or decrypted glucose data.
         if let value = characteristic.value {
-            trace("in didUpdateValueFor, data = %{public}@", log: log, category: ConstantsLog.categoryBlueToothTransmitter, type: .debug, value.hexEncodedString())
+            let isAidexSensitive = [
+                "F001", "F002", "F003"
+            ].contains(characteristic.uuid.uuidString.suffix(4).uppercased())
+            if isAidexSensitive {
+                trace("in didUpdateValueFor, received protected characteristic %{public}@, bytes=%{public}d", log: log, category: ConstantsLog.categoryBlueToothTransmitter, type: .debug, characteristic.uuid.uuidString, value.count)
+            } else {
+                trace("in didUpdateValueFor, data = %{public}@", log: log, category: ConstantsLog.categoryBlueToothTransmitter, type: .debug, value.hexEncodedString())
+            }
         }
         
         timeStampLastStatusUpdate = Date()
@@ -1042,7 +1074,7 @@ class BluetoothTransmitter: NSObject, CBCentralManagerDelegate, CBPeripheralDele
         }
     }
     
-    // MARK: - helpers
+    // MARK: - helpers/
     
     /// to ask transmitter that it initiates pairing
     ///

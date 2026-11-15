@@ -754,6 +754,10 @@ final class RootHomeStateModel: ObservableObject {
            sensorAgeInMinutes < ConstantsLibreLinkUp.sensorWarmUpRequiredInMinutesForLibre {
             warmUpMinutes = ConstantsLibreLinkUp.sensorWarmUpRequiredInMinutesForLibre
         } else if UserDefaults.standard.isMaster,
+                  cgmTransmitter?.cgmTransmitterType() == .ottai {
+            let requiredMinutes = ConstantsMaster.minimumSensorWarmUpRequiredInMinutesOttai
+            warmUpMinutes = sensorAgeInMinutes < requiredMinutes ? requiredMinutes : nil
+        } else if UserDefaults.standard.isMaster,
                   sensorType == .Libre {
             // Use the same sensor-reported duration as Sensor Management and glucose gating.
             // Native Libre 3/3 Plus reports 60 minutes. Older Libre sources keep their fallback.
@@ -768,6 +772,9 @@ final class RootHomeStateModel: ObservableObject {
                 ? ConstantsMaster.minimumSensorWarmUpRequiredInMinutesDexcomG6Anubis
                 : ConstantsMaster.minimumSensorWarmUpRequiredInMinutesDexcomG5G6
             warmUpMinutes = sensorAgeInMinutes < requiredMinutes ? requiredMinutes : nil
+        } else if UserDefaults.standard.isMaster,
+                  cgmTransmitter?.cgmTransmitterType() == .Aidex {
+            warmUpMinutes = sensorAgeInMinutes < ConstantsAidex.warmupMinutes ? ConstantsAidex.warmupMinutes : nil
         } else {
             warmUpMinutes = nil
         }

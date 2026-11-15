@@ -802,6 +802,20 @@ final class DexcomG7CalibrationTests: XCTestCase {
     }
 
     @MainActor
+    func testAidexReadingsUseSevenMinuteWarmup() {
+        let requiredMinutes = ConstantsAidex.warmupMinutes
+
+        XCTAssertTrue(RootApplicationCoordinator.shouldSuppressReadingDuringWarmup(
+            sensorAgeInSeconds: .minutes(requiredMinutes - 0.1),
+            minimumWarmUpRequiredInMinutes: requiredMinutes
+        ))
+        XCTAssertFalse(RootApplicationCoordinator.shouldSuppressReadingDuringWarmup(
+            sensorAgeInSeconds: .minutes(requiredMinutes),
+            minimumWarmUpRequiredInMinutes: requiredMinutes
+        ))
+    }
+
+    @MainActor
     func testG7PositiveReadingsRemainSuppressedUntilWarmupCompletes() {
         let requiredMinutes = ConstantsMaster.minimumSensorWarmUpRequiredInMinutesDexcomG7
 
