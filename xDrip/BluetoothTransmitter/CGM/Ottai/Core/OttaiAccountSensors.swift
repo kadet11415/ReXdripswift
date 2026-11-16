@@ -84,9 +84,10 @@ enum OttaiAccountSensors {
         if let history {
             // Any failed history lookup is an error, even if it included data; never hide an expired session.
             let body = try checked(history)
-            guard let data = try payload(body), let rows = (data["items"] ?? data["list"] ?? data["records"]) as? [[String: Any]] else {
+            guard let data = try payload(body) else {
                 throw OttaiAccountSensorsError(message: "The sensor history response has an unsupported format.")
             }
+            let rows = (data["items"] ?? data["list"] ?? data["records"]) as? [[String: Any]] ?? []
             var seen = Set(sensors.map(\.mac))
             for row in rows {
                 if let sensor = parseSensor(row, bound: false), seen.insert(sensor.mac).inserted { sensors.append(sensor) }

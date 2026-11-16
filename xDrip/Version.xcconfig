@@ -6,7 +6,7 @@
 
 // Version [DEFAULT]
 XDRIP_MARKETING_VERSION = 5.7.0 //7.2.1
-CURRENT_PROJECT_VERSION = 4235 //RC1+aidex_CN+fix_opcodes+LumiFix
+CURRENT_PROJECT_VERSION = 4235.1 //RC1+aidex_CN+fix_opcodes+LumiFix+OttaiFix
 
 // Optional override
 #include? "VersionOverride.xcconfig"
