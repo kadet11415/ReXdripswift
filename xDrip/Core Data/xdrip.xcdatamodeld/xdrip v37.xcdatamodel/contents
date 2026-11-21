@@ -79,6 +79,7 @@
         <attribute name="shouldconnect" attributeType="Boolean" usesScalarValueType="YES"/>
         <attribute name="transmitterId" optional="YES" attributeType="String"/>
         <attribute name="webOOPEnabled" attributeType="Boolean" usesScalarValueType="YES"/>
+        <relationship name="sibionicsCN" optional="YES" maxCount="1" deletionRule="Cascade" destinationEntity="SibionicsCN" inverseName="blePeripheral" inverseEntity="SibionicsCN"/>
         <relationship name="aidex" optional="YES" maxCount="1" deletionRule="Cascade" destinationEntity="Aidex" inverseName="blePeripheral" inverseEntity="Aidex"/>
         <relationship name="batteryHistorySamples" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="BatteryHistorySample" inverseName="blePeripheral" inverseEntity="BatteryHistorySample"/>
         <relationship name="bubble" optional="YES" maxCount="1" deletionRule="Cascade" destinationEntity="Bubble" inverseName="blePeripheral" inverseEntity="Bubble"/>
@@ -328,5 +329,11 @@
         <attribute name="uploaded" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
         <attribute name="value" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
         <attribute name="valueSecondary" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+    </entity>
+    <entity name="SibionicsCN" representedClassName=".SibionicsCN" syncable="YES">
+        <attribute name="sensorCode" optional="YES" attributeType="String"/>
+        <attribute name="declaredMAC" optional="YES" attributeType="String"/>
+        <attribute name="startAuthorized" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
+        <relationship name="blePeripheral" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="BLEPeripheral" inverseName="sibionicsCN" inverseEntity="BLEPeripheral"/>
     </entity>
 </model>

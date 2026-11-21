@@ -9,13 +9,14 @@ import Foundation
 
 /// Use the same next step in the setup screen and its button handlers.
 enum OttaiSetupStep: Equatable {
-    case enterID, signIn, fetch, connect, activate, starting, finishingSetup, active, ended
+    case enterID, signIn, fetch, prepareNew, connect, activate, starting, finishingSetup, active, ended
     case warmup(minutes: Int)
 
     static func resolve(sensorID: String, signedIn: Bool, hasKeys: Bool, bootstrapPending: Bool,
                         pendingBind: Bool, activationRequested: Bool, activationStarted: Bool,
                         commandStatus: Int, savedCommandStatus: Int, startMs: Int64, nowMs: Int64,
-                        preheatPeriodMs: Int64 = OttaiConstants.defaultPreheatPeriodMs) -> Self {
+                        preheatPeriodMs: Int64 = OttaiConstants.defaultPreheatPeriodMs,
+                        newGlobalSensor: Bool = false) -> Self {
         guard OttaiConstants.looksLikeMac(sensorID) else { return .enterID }
         if commandStatus >= 4 || savedCommandStatus >= 4 { return .ended }
         if pendingBind { return signedIn ? .finishingSetup : .signIn }
@@ -28,7 +29,7 @@ enum OttaiSetupStep: Equatable {
             return .active
         }
         if !hasKeys && !signedIn { return .signIn }
-        if !hasKeys && !bootstrapPending { return .fetch }
+        if !hasKeys && !bootstrapPending { return newGlobalSensor ? .prepareNew : .fetch }
         if activationRequested { return .starting }
         if hasKeys && commandStatus < 0 { return .connect }
         return .activate
@@ -38,7 +39,8 @@ enum OttaiSetupStep: Equatable {
         switch self {
         case .enterID: return "Add sensor"
         case .signIn: return "Sign in"
-        case .fetch: return "Set up sensor"
+        case .fetch: return "Restore existing sensor"
+        case .prepareNew: return "Check new Global sensor"
         case .connect: return "Connect to sensor"
         case .activate: return "Start sensor"
         case .starting: return "Starting sensor…"
@@ -53,7 +55,8 @@ enum OttaiSetupStep: Equatable {
         switch self {
         case .enterID: return "Enter the ID from the sensor box."
         case .signIn: return "Use the account for your sensor region."
-        case .fetch: return "Get the settings for this sensor."
+        case .fetch: return "Read saved keys for a previously linked sensor."
+        case .prepareNew: return "For an unused Ottai M8: verify its ID and firmware (V3) before Bluetooth setup. Activation requires separate confirmation."
         case .connect: return "Check the sensor before starting it."
         case .activate: return "Put the sensor on before starting."
         case .starting: return "Keep the phone nearby. Do not start again."

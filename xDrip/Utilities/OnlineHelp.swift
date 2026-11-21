@@ -441,6 +441,8 @@ extension BluetoothPeripheralType {
             return .medtrumNano
         case .AidexType:
             return .aidex
+        case .SibionicsCNType:
+            return .addDirectCGM
         }
     }
 }

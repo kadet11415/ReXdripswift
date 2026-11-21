@@ -40,9 +40,6 @@ final class BluetoothPeripheralDetailState: NSObject, ObservableObject {
     /// Discovered Aidex sensors awaiting user selection — set by aidexDidFinishScanning.
     @Published var discoveredAidexDevices: [DiscoveredAidexSensor]? = nil
 
-    /// Discovered Ottai sensors awaiting user selection — set by ottaiDidFinishScanning.
-    @Published var discoveredOttaiDevices: [DiscoveredOttaiSensor]? = nil
-
     // MARK: - Dependencies
 
     private var bluetoothPeripheral: BluetoothPeripheral?
@@ -102,6 +99,12 @@ final class BluetoothPeripheralDetailState: NSObject, ObservableObject {
     private var dexcomG6BluetoothSlot: DexcomG6BluetoothSlot
     private var dexcomG7BluetoothSlot: DexcomG7BluetoothSlot
     private var isScanning = false
+    private var gs1Code = ""
+    private var gs1MAC = ""
+    private var gs1Scanner: GS1PeripheralScanner?
+    private var gs1ChoosingDevice = false
+    private var gs1Selected: GS1PeripheralScanner.Candidate?
+    private var gs1SetupStatus = "Enter the 8-character code from the sensor box"
     private var nfcScanNeeded = false
     private var nfcScanSuccessful = false
     // Takes priority over saved connection history when this screen starts a fresh wait.
@@ -186,9 +189,6 @@ final class BluetoothPeripheralDetailState: NSObject, ObservableObject {
 
         super.init()
 
-        let expectedOttaiType: Bool = {
-            return expectedBluetoothPeripheralType == .OttaiType
-        }()
         if expectedBluetoothPeripheralType == .AidexType {
             NotificationCenter.default.addObserver(
                 self,
@@ -198,20 +198,12 @@ final class BluetoothPeripheralDetailState: NSObject, ObservableObject {
             )
         }
 
-        if expectedOttaiType {
-            NotificationCenter.default.addObserver(
-                self,
-                selector: #selector(handleOttaiScanResults(_:)),
-                name: .ottaiDidFinishScanning,
-                object: nil
-            )
-        }
-
         configureTransmitterDelegates()
         refresh()
     }
 
     deinit {
+        gs1Scanner?.stop()
         stop()
         reassignTransmitterDelegatesToBluetoothPeripheralManager()
     }
@@ -335,6 +327,9 @@ final class BluetoothPeripheralDetailState: NSObject, ObservableObject {
     func stop() {
         ottaiNFCWakeScreenID = UUID()
         ottaiNFCWake.cancel()
+        // The selection list is a pushed route: retain its finished, read-only scanner
+        // so an explicit row choice can perform Device Information discovery.
+        if !gs1ChoosingDevice { gs1Scanner?.stop(); gs1Scanner = nil; isScanning = false }
         setSignalStrengthVisible(false)
         stopTransmitterReadSuccessTimer()
         removeObserversIfNeeded()
@@ -415,6 +410,9 @@ final class BluetoothPeripheralDetailState: NSObject, ObservableObject {
         ))
 
         guard bluetoothPeripheral != nil else {
+            if expectedBluetoothPeripheralType == .SibionicsCNType {
+                sections.append(contentsOf: makeGS1Sections())
+            }
             if let dexcomG6BluetoothSlotSection = makeDexcomG6BluetoothSlotSection() {
                 sections.append(dexcomG6BluetoothSlotSection)
             }
@@ -662,6 +660,7 @@ final class BluetoothPeripheralDetailState: NSObject, ObservableObject {
     }
 
     private func makePeripheralSpecificSections() -> [BluetoothPeripheralDetailSection] {
+        if expectedBluetoothPeripheralType == .SibionicsCNType { return makeGS1Sections() }
         guard let bluetoothPeripheral = bluetoothPeripheral else { return [] }
 
         switch expectedBluetoothPeripheralType {
@@ -730,7 +729,7 @@ final class BluetoothPeripheralDetailState: NSObject, ObservableObject {
             return makeHeartbeatBatterySections() + makeGenericHeartbeatSettingsSections()
         case .DexcomG7HeartBeatType:
             return makeHeartbeatBatterySections()
-        case .OmniPodHeartBeatType:
+        case .OmniPodHeartBeatType, .SibionicsCNType:
             return []
         }
     }
@@ -841,6 +840,12 @@ private extension BluetoothPeripheralDetailState {
             }
 
             return BluetoothPeripheralConnectButtonState(title: Texts_BluetoothPeripheralView.connect, isEnabled: true)
+        }
+
+        if expectedBluetoothPeripheralType == .SibionicsCNType {
+            return isScanning
+                ? BluetoothPeripheralConnectButtonState(title: "Stop scanning", isEnabled: true, isStopAction: true, tintColor: .red)
+                : BluetoothPeripheralConnectButtonState(title: Texts_BluetoothPeripheralView.scan, isEnabled: true)
         }
 
         if expectedBluetoothPeripheralType.needsTransmitterId(), transmitterIdTempValue == nil {
@@ -1052,6 +1057,27 @@ private extension BluetoothPeripheralDetailState {
         // Block denied/restricted access here too, in case an NFC retry calls this directly.
         guard CBManager.authorization != .denied && CBManager.authorization != .restricted else {
             refresh()
+            return
+        }
+        if expectedBluetoothPeripheralType == .SibionicsCNType, isScanning {
+            gs1Scanner?.stop(); gs1Scanner = nil; isScanning = false; refresh(); return
+        }
+        if let device = bluetoothPeripheral as? SibionicsCN, !device.blePeripheral.shouldconnect, !device.startAuthorized {
+            guard canActivateCurrentPeripheral() else { return }
+            guard (try? GS1CNIdentity(sensorCode: device.sensorCode ?? "", mac: GS1MAC(device.declaredMAC ?? ""))) != nil,
+                  UUID(uuidString: device.blePeripheral.address) != nil else {
+                pendingAlert = BluetoothPeripheralDetailAlert(title: "GS1 setup incomplete", message: "A valid box code, MAC and selected Bluetooth device are required.")
+                return
+            }
+            pendingAlert = BluetoothPeripheralDetailAlert(title: "Connect factory 14-day GS1 CN",
+                message: "Confirm that this is the Chinese factory 14-day GS1. The first connection may start an unused sensor. Warm-up is 60 minutes from the original start. EU, GS1-7, GS1-10, SIB2 and V120 are not supported by this integration. The original sensor start is preserved.",
+                primaryButtonTitle: "Connect", primaryAction: { [weak self, weak device] in
+                    guard let self, let device else { return }
+                    device.startAuthorized = true
+                    self.coreDataManager.saveChanges()
+                    self.connectButtonHandler()
+                    self.refresh()
+                }, secondaryButtonTitle: Texts_Common.Cancel)
             return
         }
         guard let bluetoothPeripheralManager = bluetoothPeripheralManager else { return }
@@ -1424,6 +1450,7 @@ private extension DexcomG7BluetoothSlot {
 
 private extension BluetoothPeripheralDetailState {
     func requestScanForBluetoothPeripheral(type: BluetoothPeripheralType) {
+        if type == .SibionicsCNType { scanGS1Candidates(); return }
         guard let notice = type.scanPreparationNotice else {
             scanForBluetoothPeripheral(type: type)
             return
@@ -3256,8 +3283,7 @@ private extension BluetoothPeripheralDetailState {
         let sensorSection = BluetoothPeripheralDetailSection(
             id: "ottai-sensor", title: "Sensor", rows: sensorRows
         )
-        let accountSection = BluetoothPeripheralDetailSection(
-            id: "ottai-account-section", title: "Cloud account", rows: [
+        var accountRows: [BluetoothPeripheralDetailRow] = [
                 row(id: "ottai-region", title: "Region",
                     detail: OttaiRegion.from(apiBase: OttaiRegistry.loadApiBase()).rawValue,
                     showsDisclosure: true, isEnabled: changingAccountAllowed,
@@ -3269,7 +3295,17 @@ private extension BluetoothPeripheralDetailState {
                     detail: signedIn ? "Select an existing sensor" : "Sign in first",
                     showsDisclosure: true, isEnabled: signedIn && changingAccountAllowed,
                     action: { [weak self] in self?.requestOttaiAccountSensor(for: ottai) })
-            ]
+        ]
+        if OttaiRegistry.loadApiBase() == OttaiConstants.apiBaseGlobal {
+            accountRows.append(row(
+                id: "ottai-unlink-previous-global", title: "Unlink previous cloud sensor",
+                detail: "Review the sensor currently linked to Global. Unlink only after it is no longer in use.",
+                detailLineLimit: 3, showsDisclosure: true, isEnabled: signedIn && changingAccountAllowed,
+                action: { [weak self] in self?.requestOttaiReleaseCurrentBinding(for: ottai) }
+            ))
+        }
+        let accountSection = BluetoothPeripheralDetailSection(
+            id: "ottai-account-section", title: "Cloud account", rows: accountRows
         )
 
         var uploadRows: [BluetoothPeripheralDetailRow] = [
@@ -3584,6 +3620,103 @@ private extension BluetoothPeripheralDetailState {
 
     var ottaiAccountContext: OttaiAccountContext {
         OttaiAccountContext(apiBase: OttaiRegistry.loadApiBase(), userId: OttaiRegistry.loadUserId(), login: OttaiRegistry.loadAccountLogin(), generation: OttaiRegistry.loadSessionGeneration())
+    }
+
+
+    /// The choice in account history is read-only. Always re-read the CURRENT cloud
+    /// binding before offering a destructive action: a history row can be stale.
+    func requestOttaiReleaseCurrentBinding(for ottai: Ottai) {
+        guard ottaiBusyMessage == nil, ottaiIsSignedIn,
+              OttaiRegistry.loadApiBase() == OttaiConstants.apiBaseGlobal,
+              !ottai.isDeleted, (bluetoothPeripheral as? Ottai) === ottai else { return }
+        let newID = ottaiCloudId(for: ottai)
+        guard OttaiConstants.looksLikeMac(newID) else {
+            showInfo(title: "New sensor ID required",
+                     message: "Enter the new sensor's ID before releasing any previous account binding.")
+            return
+        }
+        let context = ottaiAccountContext
+        setOttaiBusy("Checking currently linked sensor…")
+        ottaiCloudQueue.async { [weak self, weak ottai] in
+            let result = OttaiCloudClient.perform {
+                OttaiCloudClient.currentGlobalBinding(requestedContext: context)
+            }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.setOttaiBusy(nil)
+                guard let ottai, !ottai.isDeleted, (self.bluetoothPeripheral as? Ottai) === ottai,
+                      self.ottaiAccountContext == context, self.ottaiCloudId(for: ottai) == newID else { return }
+                switch result.value {
+                case .failed:
+                    self.showInfo(title: "Could not check cloud binding",
+                                  message: result.errorText.isEmpty ? "The server did not verify the currently linked sensor. Nothing was unlinked." : result.errorText)
+                case .unbound:
+                    self.showInfo(title: "No sensor linked",
+                                  message: "Ottai Global reports no current sensor bound to this account. Try Check new Global sensor again.")
+                case .bound(let previousID):
+                    guard previousID != newID else {
+                        self.showInfo(title: "This sensor is already linked",
+                                      message: "The account currently links sensor \(newID). It will not be unlinked as a previous sensor. Do not restart an active sensor.")
+                        return
+                    }
+                    self.pendingAlert = BluetoothPeripheralDetailAlert(
+                        title: "Unlink previous sensor?",
+                        message: "Ottai Global currently links \(previousID). New sensor: \(newID).\n\nUnlink ONLY if \(previousID) is no longer in use. The server may permanently mark it ended, prevent future pairing, and stop its cloud sharing. This action is not reversible here. xDrip will not send a Bluetooth stop command, delete saved keys, or activate \(newID).",
+                        primaryButtonTitle: "Unlink \(previousID)",
+                        primaryAction: { [weak self, weak ottai] in
+                            guard let self, let ottai else { return }
+                            self.confirmOttaiReleaseCurrentBinding(previousID: previousID, newID: newID,
+                                                                   context: context, for: ottai)
+                        },
+                        secondaryButtonTitle: Texts_Common.Cancel
+                    )
+                }
+            }
+        }
+    }
+
+    private func confirmOttaiReleaseCurrentBinding(previousID: String, newID: String,
+                                                   context: OttaiAccountContext, for ottai: Ottai) {
+        guard ottaiBusyMessage == nil, !ottai.isDeleted,
+              (bluetoothPeripheral as? Ottai) === ottai,
+              ottaiAccountContext == context, ottaiCloudId(for: ottai) == newID,
+              previousID != newID else { return }
+        setOttaiBusy("Unlinking previous cloud sensor…")
+        ottaiCloudQueue.async { [weak self, weak ottai] in
+            let result = OttaiCloudClient.perform {
+                OttaiCloudClient.releasePreviousGlobalBinding(
+                    oldMac: previousID, newMac: newID, requestedContext: context)
+            }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.setOttaiBusy(nil)
+                guard let ottai, !ottai.isDeleted, (self.bluetoothPeripheral as? Ottai) === ottai,
+                      self.ottaiAccountContext == context, self.ottaiCloudId(for: ottai) == newID else { return }
+                switch result.value {
+                case .released, .alreadyUnbound:
+                    self.showInfo(title: "Previous sensor unlinked",
+                                  message: "The cloud no longer links \(previousID). New sensor \(newID) has NOT been activated. Select Check new Global sensor to continue.")
+                case .currentSensor:
+                    self.showInfo(title: "Cannot unlink current sensor",
+                                  message: "The old and new sensor IDs match. Nothing was unlinked.")
+                case .bindingChanged(let current):
+                    self.showInfo(title: "Cloud binding changed",
+                                  message: "The account now links \(current). No further unlink was attempted. Review the account before continuing.")
+                case .stillBound:
+                    self.showInfo(title: "Sensor still linked",
+                                  message: result.errorText.isEmpty
+                                      ? "Ottai Global still reports \(previousID) as linked. No other unlink reason was tried and no additional request was sent."
+                                      : result.errorText + "\n\nNo other unlink reason was tried. The cloud binding remains in place.")
+                case .unverified:
+                    self.showInfo(title: "Unlink not verified",
+                                  message: "The result is uncertain because the server could not confirm the current binding. Do not repeat the action until checking the account.")
+                case .failed:
+                    self.showInfo(title: "Unlink failed",
+                                  message: result.errorText.isEmpty ? "The current account binding could not be verified. No unlink request was sent." : result.errorText)
+                }
+                self.refresh()
+            }
+        }
     }
 
     func requestOttaiAccountSensor(for ottai: Ottai) {
@@ -3933,7 +4066,23 @@ private extension BluetoothPeripheralDetailState {
                 guard let ottai, !ottai.isDeleted, self.ottaiAccountContext == context,
                       self.ottaiCloudId(for: ottai) == sensorID else { return }
                 guard checked else {
-                    self.showInfo(title: "New sensor check failed", message: failure.isEmpty ? "The server did not provide verified preparation metadata. No sensor commands were sent." : failure); return
+                    if result.failure?.code.caseInsensitiveCompare(OttaiCloudClient.bizAlreadyBinding) == .orderedSame
+                        && context.apiBase == OttaiConstants.apiBaseGlobal {
+                        self.pendingAlert = BluetoothPeripheralDetailAlert(
+                            title: "Another cloud sensor is linked",
+                            message: "Ottai Global reports another sensor still linked to this account (AppUser_AlreadyBinding). Review its ID before releasing it. No new sensor activation or unbinding has occurred.",
+                            primaryButtonTitle: "Review linked sensor",
+                            primaryAction: { [weak self, weak ottai] in
+                                guard let self, let ottai, self.ottaiAccountContext == context,
+                                      self.ottaiCloudId(for: ottai) == sensorID else { return }
+                                self.requestOttaiReleaseCurrentBinding(for: ottai)
+                            },
+                            secondaryButtonTitle: Texts_Common.Cancel
+                        )
+                    } else {
+                        self.showInfo(title: "New sensor check failed", message: failure.isEmpty ? "The server did not provide verified preparation metadata. No sensor commands were sent." : failure)
+                    }
+                    return
                 }
                 self.recreateOttaiTransmitterIfMaterialsReady(for: ottai)
                 if continueToActivation {
@@ -4775,21 +4924,6 @@ extension BluetoothPeripheralDetailState: CGMAidexTransmitterDelegate {
         }
     }
 
-    func selectOttaiDevice(_ discovered: DiscoveredOttaiSensor) {
-        discoveredOttaiDevices = nil
-        if let bluetoothPeripheral,
-           let transmitter = bluetoothPeripheralManager?
-            .getBluetoothTransmitter(for: bluetoothPeripheral, createANewOneIfNecesssary: false)
-                as? CGMOttaiTransmitter {
-            transmitter.connectToDiscoveredDevice(discovered)
-        } else {
-            // For new device scan: use the temp transmitter stored in BluetoothPeripheralManager
-            (bluetoothPeripheralManager as? BluetoothPeripheralManager)?
-                .tempBlueToothTransmitterWhileScanningForNewBluetoothPeripheral
-                .flatMap { ($0 as? CGMOttaiTransmitter)?.connectToDiscoveredDevice(discovered) }
-        }
-    }
-
     func aidexDidConnect(_ sensor: AidexSensor, from cGMAidexTransmitter: CGMAidexTransmitter) {
         (bluetoothPeripheralManager as? CGMAidexTransmitterDelegate)?.aidexDidConnect(sensor, from: cGMAidexTransmitter)
     }
@@ -4829,28 +4963,125 @@ extension BluetoothPeripheralDetailState: CGMAidexTransmitterDelegate {
         discoveredAidexDevices = devices
     }
 
-    @objc private func handleOttaiScanResults(_ notification: Notification) {
-        trace("OttaiUI: handleOttaiScanResults fired", log: log, category: ConstantsLog.categoryBluetoothPeripheralViewController, type: .info)
+}
 
-        guard let userInfo = notification.userInfo,
-              let devices = userInfo["devices"] as? [DiscoveredOttaiSensor] else {
-            trace("OttaiUI: handleOttaiScanResults — failed to extract devices from userInfo", log: log, category: ConstantsLog.categoryBluetoothPeripheralViewController, type: .error)
+// MARK: - Explicit factory GS1 CN setup
+private extension BluetoothPeripheralDetailState {
+    func makeGS1Sections() -> [BluetoothPeripheralDetailSection] {
+        let device = bluetoothPeripheral as? SibionicsCN
+        let transmitter = device.flatMap { bluetoothPeripheralManager?.getBluetoothTransmitter(for: $0, createANewOneIfNecesssary: false) as? CGMSibionicsTransmitter }
+        var rows = [
+            row(id: "gs1-code", title: "Box code (8 characters)", detail: device?.sensorCode ?? gs1Code, isEnabled: device == nil && !isScanning, action: { [weak self] in self?.editGS1Value(isCode: true) }),
+            row(id: "gs1-mac", title: "Sensor MAC", detail: device?.declaredMAC ?? gs1MAC, isEnabled: device == nil && !isScanning, action: { [weak self] in self?.editGS1Value(isCode: false) }),
+            row(id: "gs1-selected", title: "Selected Bluetooth device", detail: device?.blePeripheral.name ?? gs1Selected?.name ?? "Not selected"),
+            row(id: "gs1-status", title: "Status", detail: transmitter?.statusText ?? (device == nil ? gs1SetupStatus : "Saved; tap Connect when ready"), detailLineLimit: 5)
+        ]
+        if device != nil {
+            let detected = transmitter?.readOnlyDetectedMAC
+            let detail = detected.map { $0.string + ($0.string == device?.declaredMAC ? " ✓" : " (differs from saved MAC)") } ?? "Waiting for Device Information"
+            rows.append(row(id: "gs1-hardware-mac", title: "MAC read from sensor", detail: detail))
+        }
+        if let device, let identity = gs1CheckpointIdentity(for: device) {
+            let enabled = GS1ExtendedReadingConsent.isEnabled(identity)
+            rows.append(row(id: "gs1-extended", title: "Extend sensor session (testing)",
+                detail: enabled ? "On — main graph, alerts and Trio" : "Off", action: { [weak self, weak device] in
+                    guard let self, let device else { return }
+                    self.requestGS1ExtendedReading(for: device)
+                }))
+
+        }
+        if device == nil, gs1Selected != nil {
+            rows.append(row(id: "gs1-save", title: "Use selected device", detail: "Save the code, MAC and selected iPhone Bluetooth identity", isEnabled: !isScanning, action: { [weak self] in self?.saveGS1Selection() }))
+        }
+        return [BluetoothPeripheralDetailSection(id: "gs1-cn", title: "Factory 14-day GS1 CN", footer: "Experimental: verify readings and reception with the screen locked before using this test collector. Select the Chinese 14-day model explicitly. Names identify candidates only. iOS normally hides the MAC; enter the actual sensor MAC or use a strict MAC returned by Device Information. Scanning and saving do not start the sensor. Final readings are available after 60 minutes and complete history; V120 revisions stop with an error.", rows: rows)]
+    }
+
+    func gs1CheckpointIdentity(for device: SibionicsCN) -> String? {
+        guard let uuid = UUID(uuidString: device.blePeripheral.address),
+              let identity = try? GS1CNIdentity(sensorCode: device.sensorCode ?? "", mac: GS1MAC(device.declaredMAC ?? "")) else { return nil }
+        return identity.checkpointIdentity(peripheralID: uuid)
+    }
+
+    func requestGS1ExtendedReading(for device: SibionicsCN) {
+        guard let identity = gs1CheckpointIdentity(for: device) else { return }
+        let apply: (Bool) -> Void = { [weak self, weak device] enabled in
+            guard let self, let device, self.gs1CheckpointIdentity(for: device) == identity else { return }
+            if let transmitter = self.bluetoothPeripheralManager?.getBluetoothTransmitter(for: device, createANewOneIfNecesssary: false) as? CGMSibionicsTransmitter {
+                transmitter.setExtendedReadingEnabled(enabled)
+            } else { GS1ExtendedReadingConsent.setEnabled(enabled, identity: identity) }
+            self.refresh()
+        }
+        if GS1ExtendedReadingConsent.isEnabled(identity) { apply(false); return }
+        pendingAlert = BluetoothPeripheralDetailAlert(title: "Enable sensor extension?",
+            message: "Extension is in testing. Fresh calculated readings after 14 days will be used in the main graph, alerts and Trio. The original start and history are preserved. Turning this off stops new extended readings; saved history stays.",
+            primaryButtonTitle: "Enable extension", primaryAction: { apply(true) }, secondaryButtonTitle: Texts_Common.Cancel)
+    }
+
+    func editGS1Value(isCode: Bool) {
+        guard bluetoothPeripheral == nil else { return }
+        presentTextEntryView(BluetoothPeripheralTextEntry(title: isCode ? "Box code" : "Sensor MAC",
+            message: isCode ? "Enter the 8-character factory code from the Chinese GS1 box." : "Enter the actual 6-byte sensor MAC (AA:BB:CC:DD:EE:FF). An iPhone Bluetooth UUID is not a MAC.",
+            keyboardType: .asciiCapable, textInputAutocapitalization: .characters,
+            text: isCode ? gs1Code : gs1MAC, placeholder: nil, actionTitle: Texts_Common.save, cancelTitle: Texts_Common.Cancel,
+            actionHandler: { [weak self] value in
+                guard let self else { return }
+                if isCode {
+                    self.gs1Code = GS1Setup.normalizedCode(value) ?? ""
+                    self.gs1Selected = nil; self.gs1Scanner?.stop(); self.gs1Scanner = nil
+                } else { self.gs1MAC = (try? GS1MAC(value).string) ?? "" }
+                self.refresh()
+            }, actionIsEnabled: nil, inputValidator: { value in
+                if isCode { return GS1Setup.normalizedCode(value) == nil ? "A supported 8-character factory GS1 code is required" : nil }
+                return (try? GS1MAC(value)) == nil ? "Enter a valid 6-byte MAC" : nil
+            }))
+    }
+
+    func scanGS1Candidates() {
+        guard bluetoothPeripheral == nil else { return }
+        guard let code = GS1Setup.normalizedCode(gs1Code) else { editGS1Value(isCode: true); return }
+        gs1Scanner?.stop(); gs1ChoosingDevice = false; gs1Selected = nil
+        isScanning = true; explicitlyStartedScanAt = Date(); gs1SetupStatus = "Scanning for matching names (12 seconds)"; refresh()
+        gs1Scanner = GS1PeripheralScanner(code: code) { [weak self] devices, error in
+            guard let self, self.gs1Code == code else { return }
+            self.isScanning = false
+            self.gs1SetupStatus = error ?? (devices.isEmpty ? "No matching sensor found" : "Choose your sensor")
+            self.refresh()
+            guard !devices.isEmpty else {
+                self.pendingAlert = BluetoothPeripheralDetailAlert(title: "GS1 search", message: error ?? "No matching name was found. Check the box code and keep the sensor near the phone.")
+                return
+            }
+            self.gs1ChoosingDevice = true
+            self.presentSelectionListView(BluetoothPeripheralSelectionList(title: "Choose GS1 Bluetooth device", explanation: "Tap your sensor, then OK. Matching names are candidates, not proof of the MAC or regional model.", data: devices.map { "\($0.name) · \($0.rssi) dBm · \($0.id.uuidString.suffix(8))" }, selectedRow: -1) { [weak self] index in
+                guard let self, devices.indices.contains(index), self.gs1Code == code else { return }
+                self.gs1ChoosingDevice = false
+                let candidate = devices[index]
+                self.gs1Selected = candidate; self.gs1SetupStatus = "Reading optional Device Information MAC…"; self.isScanning = true; self.refresh()
+                self.gs1Scanner?.readMAC(from: candidate) { [weak self] mac in
+                    guard let self, self.gs1Code == code, self.gs1Selected?.id == candidate.id else { return }
+                    self.isScanning = false
+                    if let mac {
+                        if self.gs1MAC.isEmpty { self.gs1MAC = mac.string; self.gs1SetupStatus = "MAC read from Device Information. Check the details, then tap Use selected device." }
+                        else if (try? GS1MAC(self.gs1MAC)) == mac { self.gs1SetupStatus = "Device Information MAC matches the entered MAC. Tap Use selected device." }
+                        else { self.gs1Selected = nil; self.gs1SetupStatus = "Device MAC differs from the entered MAC. Check the code and MAC before selecting again." }
+                    } else { self.gs1SetupStatus = "No MAC was provided by Device Information. Enter the actual sensor MAC, then tap Use selected device." }
+                    self.refresh()
+                }
+            })
+        }
+    }
+
+    func saveGS1Selection() {
+        guard bluetoothPeripheral == nil, let selected = gs1Selected, let manager = bluetoothPeripheralManager as? BluetoothPeripheralManager else { return }
+        guard let code = GS1Setup.normalizedCode(gs1Code), let mac = try? GS1MAC(gs1MAC), GS1Setup.matches(name: selected.name, code: code) else {
+            pendingAlert = BluetoothPeripheralDetailAlert(title: "GS1 setup incomplete", message: "Enter the factory code and actual sensor MAC before saving.")
             return
         }
-
-        trace("OttaiUI: handleOttaiScanResults — received %{public}d device(s)", log: log, category: ConstantsLog.categoryBluetoothPeripheralViewController, type: .info, devices.count)
-
-        guard devices.count > 0 else {
-            trace("OttaiUI: no Ottai sensors found, showing alert", log: log, category: ConstantsLog.categoryBluetoothPeripheralViewController, type: .info)
-            pendingAlert = BluetoothPeripheralDetailAlert(
-                title: "No Sensors Found",
-                message: "No Ottai/Syai sensors were found nearby. Make sure the sensor is activated and within range."
-            )
+        do {
+            bluetoothPeripheral = try manager.registerSibionicsCN(address: selected.id, name: selected.name, code: code, mac: mac.string)
+            gs1Scanner?.stop(); gs1Scanner = nil; gs1Selected = nil
             refresh()
-            return
+        } catch {
+            pendingAlert = BluetoothPeripheralDetailAlert(title: "Could not save GS1", message: "This Bluetooth device may already be configured. Open its existing card.")
         }
-
-        trace("OttaiUI: setting discoveredOttaiDevices = %{public}d devices", log: log, category: ConstantsLog.categoryBluetoothPeripheralViewController, type: .info, devices.count)
-        discoveredOttaiDevices = devices
     }
 }

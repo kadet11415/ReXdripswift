@@ -776,6 +776,9 @@ class Trace {
                             }
                         }
 
+                    case .SibionicsCNType:
+                        traceInfo.appendStringAndNewLine("        Type: Sibionics GS1 CN (14-day)")
+
                     case .AidexType:
                         if let aidex = blePeripheral.aidex {
 

@@ -89,12 +89,6 @@ final class CGMOttaiTransmitter: BluetoothTransmitter, CGMTransmitter {
     /// xDrip only: sends the accepted readings to the Syai cloud when the user turned that on.
     private let cloudUploader: OttaiCloudUploader
 
-    // MARK: - scan-only state (OttaiScanOnly.swift)
-
-    /// devices discovered during scan-only mode (keyed by peripheral identifier)
-    internal var discoveredOttaiDevices: [UUID: DiscoveredOttaiSensor] = [:]
-    internal var ottaiScanTimeoutWork: DispatchWorkItem?
-
     // MARK: - state for one connection (reset on every connect)
 
     private enum Phase { case idle, enablingNotify, auth, streaming }
@@ -236,6 +230,7 @@ final class CGMOttaiTransmitter: BluetoothTransmitter, CGMTransmitter {
     var preparationTestRediscover: (() -> Void)?
     var activationTestRediscover: (() -> Void)?
     var preparationTestMaterialFetch: ((Bool, () -> Bool) -> OttaiRegistry.DeviceMaterials?)?
+    var preparationTestSend: OttaiGlobalContract.Send?
     var preparationTestLocalReauth: (() -> Void)?
     var serverActivationTestPendingBind: (() -> Void)?
     var streamingTestNow: (() -> Int64)?
@@ -1254,40 +1249,46 @@ final class CGMOttaiTransmitter: BluetoothTransmitter, CGMTransmitter {
                     return OttaiRegistry.savePreparationCheckpoint(current)
                 }
             }
-            var bindRejected = false
-            func fetch() -> OttaiRegistry.DeviceMaterials? {
+            func fetch() -> OttaiCloudClient.PreparationResult {
                 if account.apiBase == OttaiConstants.apiBaseSyai {
-                    let result = OttaiCloudClient.prepareMaterials(mac: id, version: firmware, allowBind: !wasAttempted,
+                    return OttaiCloudClient.prepareMaterials(mac: id, version: firmware, allowBind: !wasAttempted,
                         requestedContext: account, stillAuthorized: stillAuthorized, willBind: willBind)
-                    bindRejected = result.bindRejected
-                    OttaiCloudClient.lastFailure = result.operation.failure
-                    return result.operation.value
                 }
-                return OttaiCloudClient.prepareActivationMaterials(mac: id, liveFirmware: firmware,
+                #if DEBUG
+                let send = self?.preparationTestSend
+                #else
+                let send: OttaiGlobalContract.Send? = nil
+                #endif
+                return OttaiCloudClient.prepareActivationMaterialsResult(mac: id, liveFirmware: firmware,
                     requestedContext: account, bindAlreadyAttempted: wasAttempted,
-                    stillAuthorized: stillAuthorized, willBind: willBind)
+                    send: send, stillAuthorized: stillAuthorized, willBind: willBind)
             }
-            let prepared: OttaiRegistry.DeviceMaterials?
+            let result: OttaiCloudClient.PreparationResult
             #if DEBUG
-            if let provider = self?.preparationTestMaterialFetch { prepared = provider(wasAttempted, willBind) }
-            else { prepared = fetch() }
+            if let provider = self?.preparationTestMaterialFetch {
+                result = .init(operation: OttaiCloudClient.perform { provider(wasAttempted, willBind) }, bindRejected: false)
+            } else { result = fetch() }
             #else
-            prepared = fetch()
+            result = fetch()
             #endif
-            let failure = OttaiCloudClient.lastError
+            let failure = result.operation.errorText
             self?.workQueue.async { [weak self] in
                 guard let self, self.connectionGeneration == generation, self.activationContextIsCurrent(),
                       self.preparationAccountIsCurrent(account) else { return }
                 self.preparationBindInFlight = false
-                if bindRejected, var rejected = OttaiRegistry.loadPreparationCheckpoint(id) {
+                if result.bindRejected, result.operation.value == nil,
+                   var rejected = OttaiRegistry.loadPreparationCheckpoint(id),
+                   rejected.matches(sensorID: id, bluetoothID: self.deviceAddress ?? "", account: account),
+                   rejected.confirmedStartMs == 0 {
                     // An explicit business refusal proves that this POST did not bind.
-                    // Unknown network results keep bindAttempted and only permit GET.
+                    // The next explicit Start may retry it. HTTP/business 500, timeout
+                    // and other uncertain outcomes keep the checkpoint and permit GET only.
                     rejected.bindAttempted = false
                     guard OttaiRegistry.savePreparationCheckpoint(rejected) else {
-                        self.giveUpServerActivation("Could not save the refused Syai binding result."); return
+                        self.giveUpServerActivation("Could not save the refused sensor binding result."); return
                     }
                 }
-                guard var prepared, prepared.authKeys != nil, OttaiCloudClient.materialsAreComplete(prepared),
+                guard var prepared = result.operation.value, prepared.authKeys != nil, OttaiCloudClient.materialsAreComplete(prepared),
                       var checkpoint = OttaiRegistry.loadPreparationCheckpoint(id) else {
                     self.giveUpServerActivation(failure.isEmpty ? "Preparation bind is unresolved. Retry reads its result without sending another bind or activation." : failure); return
                 }

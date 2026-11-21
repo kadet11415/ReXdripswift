@@ -37,7 +37,10 @@ enum OttaiRegistry {
     enum SessionProfile: String {
         case watch = "WATCH"
         case cnPhone = "CN_PHONE"
-        case globalPhone = "GLOBAL_PHONE"
+        /// Existing 1.38 sessions were issued to ottai-seas and must never be relabelled.
+        case globalPhoneLegacy = "GLOBAL_PHONE"
+        /// Current Global phone session, issued to ottai / com.ottai.seas.
+        case globalPhone = "GLOBAL_PHONE_20261115"
     }
 
     // MARK: - UserDefaults keys (same names as in the Kotlin code)
@@ -55,6 +58,7 @@ enum OttaiRegistry {
         static let selfDeviceId = "ottai_self_device_id"
         static let cnCommonDeviceId = "ottai_cn_common_device_id"
         static let globalCommonDeviceId = "ottai_global_common_device_id"
+        static let globalPhoneDeviceId = "ottai_global_phone_device_id"
         static let sensorsSet = "ottai_sensors"
         // xDrip only: upload of readings to the Syai cloud (see OttaiCloudUploader)
         static let cloudUploadEnabled = "ottai_cloud_upload_enabled"
@@ -278,10 +282,16 @@ enum OttaiRegistry {
     /// A generated identity supported by the official Global app; stable across logins/relaunches.
     static func loadOrCreateGlobalHeaderDeviceId(in defaults: UserDefaults = .standard) -> String {
         accountLock.lock(); defer { accountLock.unlock() }
-        if let existing = defaults.string(forKey: K.globalCommonDeviceId), OttaiGlobalContract.validDeviceID(existing) { return existing }
+        if let existing = defaults.string(forKey: K.globalPhoneDeviceId), OttaiGlobalContract.validDeviceID(existing) { return existing }
         let generated = OttaiGlobalContract.makeDeviceID()
-        defaults.set(generated, forKey: K.globalCommonDeviceId)
+        defaults.set(generated, forKey: K.globalPhoneDeviceId)
         return generated
+    }
+
+    /// An old token retains its original device identity until a new login is committed.
+    static func loadLegacyGlobalHeaderDeviceId(in defaults: UserDefaults = .standard) -> String {
+        let value = defaults.string(forKey: K.globalCommonDeviceId) ?? ""
+        return OttaiGlobalContract.validLegacyDeviceID(value) ? value : ""
     }
 
     // MARK: - upload to the Syai cloud (xDrip only)

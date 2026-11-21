@@ -174,7 +174,7 @@ class BluetoothPeripheralManager: NSObject {
                         _ = m5StackBluetoothTransmitter.writeBgReadingInfo(bgReading: bgReadingToSend[0])
                     }
                     
-                case .DexcomType, .BubbleType, .MiaoMiaoType, .Libre2Type, .Libre3Type, .DexcomG7Type, .OttaiType, .MedtrumTouchCareNanoType, .AidexType:
+                case .DexcomType, .BubbleType, .MiaoMiaoType, .Libre2Type, .Libre3Type, .DexcomG7Type, .OttaiType, .MedtrumTouchCareNanoType, .AidexType, .SibionicsCNType:
                     // cgm's don't receive reading, they send it
                     break
 
@@ -432,6 +432,11 @@ class BluetoothPeripheralManager: NSObject {
                         }
                     }
 
+                case .SibionicsCNType:
+                    if let device = bluetoothPeripheral as? SibionicsCN, let cgmTransmitterDelegate {
+                        newTransmitter = CGMSibionicsTransmitter(address: device.blePeripheral.address, name: device.blePeripheral.name, code: device.sensorCode, mac: device.declaredMAC, authorized: device.startAuthorized && device.blePeripheral.shouldconnect, bluetoothTransmitterDelegate: self, cGMTransmitterDelegate: cgmTransmitterDelegate)
+                    }
+
                 case .AidexType:
 
                     if let aidex = bluetoothPeripheral as? Aidex {
@@ -535,6 +540,9 @@ class BluetoothPeripheralManager: NSObject {
                 if bluetoothTransmitter is CGMMedtrumTouchCareNanoTransmitter {
                     return .MedtrumTouchCareNanoType
                 }
+
+            case .SibionicsCNType:
+                if bluetoothTransmitter is CGMSibionicsTransmitter { return .SibionicsCNType }
 
             case .AidexType:
                 if bluetoothTransmitter is CGMAidexTransmitter {
@@ -644,6 +652,11 @@ class BluetoothPeripheralManager: NSObject {
 
             return CGMMedtrumTouchCareNanoTransmitter(address: nil, name: nil, bluetoothTransmitterDelegate: bluetoothTransmitterDelegate ?? self, cGMTransmitterDelegate: cgmTransmitterDelegate)
 
+        case .SibionicsCNType:
+            guard let cgmTransmitterDelegate else { fatalError("Missing CGM delegate") }
+            // Initial pairing uses the passive, explicit UI picker. This placeholder cannot write.
+            return CGMSibionicsTransmitter(address: nil, name: nil, code: nil, mac: nil, authorized: false, bluetoothTransmitterDelegate: bluetoothTransmitterDelegate ?? self, cGMTransmitterDelegate: cgmTransmitterDelegate)
+
         case .AidexType:
 
             guard let cgmTransmitterDelegate = cgmTransmitterDelegate else {
@@ -658,6 +671,22 @@ class BluetoothPeripheralManager: NSObject {
 
     public func firstIndexInBluetoothPeripherals(bluetoothPeripheral: BluetoothPeripheral) -> Int? {
         return bluetoothPeripherals.firstIndex(where: {$0.blePeripheral.address == bluetoothPeripheral.blePeripheral.address})
+    }
+
+    /// Persist an explicitly selected UUID without creating a transmitter or writing to a sensor.
+    func registerSibionicsCN(address: UUID, name: String, code: String, mac: String) throws -> SibionicsCN {
+        let identity = try GS1CNIdentity(sensorCode: code, mac: GS1MAC(mac))
+        guard !bluetoothPeripherals.contains(where: { $0.blePeripheral.address == address.uuidString }) else {
+            throw GS1SetupError.alreadyConfigured
+        }
+        let device = SibionicsCN(address: address.uuidString, name: name, alias: nil, nsManagedObjectContext: coreDataManager.mainManagedObjectContext)
+        device.sensorCode = identity.sensorCode
+        device.declaredMAC = identity.mac.string
+        device.startAuthorized = false
+        let index = insertInBluetoothPeripherals(bluetoothPeripheral: device)
+        bluetoothTransmitters.insert(nil, at: index)
+        coreDataManager.saveChanges()
+        return device
     }
 
     /// - will insert bluetoothPeripheral in the array bluetoothPeripherals, and returns the index where it's been inserted.
@@ -1151,6 +1180,18 @@ class BluetoothPeripheralManager: NSObject {
 
                     }
 
+                case .SibionicsCNType:
+                    if let device = blePeripheral.sibionicsCN {
+                        blePeripheralFound = true
+                        let index = insertInBluetoothPeripherals(bluetoothPeripheral: device)
+                        if device.blePeripheral.shouldconnect && device.startAuthorized {
+                            bluetoothTransmitters.insert(CGMSibionicsTransmitter(address: device.blePeripheral.address, name: device.blePeripheral.name, code: device.sensorCode, mac: device.declaredMAC, authorized: true, bluetoothTransmitterDelegate: self, cGMTransmitterDelegate: cgmTransmitterDelegate), at: index)
+                            currentCgmTransmitterAddress = blePeripheral.address
+                        } else {
+                            bluetoothTransmitters.insert(nil, at: index)
+                        }
+                    }
+
                 case .AidexType:
 
                     if let aidex = blePeripheral.aidex {
@@ -1294,7 +1335,7 @@ class BluetoothPeripheralManager: NSObject {
                     bluetoothPeripheral.blePeripheral.parameterUpdateNeededAtNextConnect = true
                 }
              
-            case .DexcomType, .BubbleType, .MiaoMiaoType, .Libre2Type, .Libre3Type, .Libre3HeartBeatType, .DexcomG7HeartBeatType, .OmniPodHeartBeatType, .DexcomG7Type, .OttaiType, .MedtrumTouchCareNanoType, .AidexType:
+            case .DexcomType, .BubbleType, .MiaoMiaoType, .Libre2Type, .Libre3Type, .Libre3HeartBeatType, .DexcomG7HeartBeatType, .OmniPodHeartBeatType, .DexcomG7Type, .OttaiType, .MedtrumTouchCareNanoType, .AidexType, .SibionicsCNType:
 
                 // nothing to check
                 break
@@ -1420,16 +1461,6 @@ extension BluetoothPeripheralManager: BluetoothPeripheralManaging {
             return
         }
 
-        // For Ottai: use scan-only mode — collect all devices first, then let user choose.
-        if type == .OttaiType, let ottaiTransmitter = newBluetoothTranmsitter as? CGMOttaiTransmitter {
-            self.callBackForScanningResult = callBackForScanningResult
-            if let callBackForScanningResult = callBackForScanningResult {
-                callBackForScanningResult(.success)
-            }
-            ottaiTransmitter.scanForDevices()
-            return
-        }
-        
         // start scanning
         let scanningResult = newBluetoothTranmsitter.startScanning()
         

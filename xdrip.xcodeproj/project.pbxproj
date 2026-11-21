@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		DC75E38AD2C1C9CD3E1A5895 /* GS1Native.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 29F213F1D8851504C41893ED /* GS1Native.xcframework */; };
 		01C6E2CD756045B18A1AEFDA /* CRC8.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4008CCB965B411E984B772E /* CRC8.swift */; };
 		0605C52C8CB943ECA6BDC200 /* Aidex+BluetoothPeripheral.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79B5898AC80C4FE08B06D84B /* Aidex+BluetoothPeripheral.swift */; };
 		13A4747AD828AEAD1B723DFE /* OttaiParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC4C2CD24CCBDD12F4AAD88F /* OttaiParser.swift */; };
@@ -44,6 +45,11 @@
 		1807A980B7F271EDD01C1748 /* BluetoothPeripheralManager+CGMLibre3TransmitterDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B0C0DE6B53BEEF522826593 /* BluetoothPeripheralManager+CGMLibre3TransmitterDelegate.swift */; };
 		1E83ECCFB4B5916FC5738267 /* GlucoseChartState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F76EA0FD5578C19B4A5176D5 /* GlucoseChartState.swift */; };
 		1E8A702686A541C08A49F81F /* CGMAidexTransmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85A7717D78964632A23ADC3A /* CGMAidexTransmitter.swift */; };
+		DE412CF0F134A56A8C0FF4EA /* CGMSibionicsTransmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B638B38728A1D5D7BA46549B /* CGMSibionicsTransmitter.swift */; };
+		26B5BE01BA6798BC713D162D /* GS1PeripheralScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 285077DBDB09AB59E86170F5 /* GS1PeripheralScanner.swift */; };
+		6893AE0854B7D450EC1AB997 /* GS1Protocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FCB9A6EC2AB2187F154B355 /* GS1Protocol.swift */; };
+		75CEBB0605DCB4BA2232CF29 /* GS1Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57ED56EC2693E2BE343F5D9 /* GS1Session.swift */; };
+		40DF5E9E64C7C61723EA168A /* SibionicsCN.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4DFB932D5C13544F19F2985 /* SibionicsCN.swift */; };
 		211A0FE027E94CF4BA5A2B8D /* AidexKeyExchange.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8126C1F544B64F25B85C244C /* AidexKeyExchange.swift */; };
 		27D7B1AFE8E34C2E8393D1E1 /* xDrip/Constants/TherapyMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80CB0A0412324311A4F99E46 /* xDrip/Constants/TherapyMetrics.swift */; };
 		28EA2C7A5E312F78E268C2A6 /* Libre3DataPlaneDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BA0089597B41151AFB66BF5 /* Libre3DataPlaneDecoder.swift */; };
@@ -955,8 +961,6 @@
 		FD21BFADEF60DD266BF89CCF /* Libre3AESCCMTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA21BE60D595114D6A698215 /* Libre3AESCCMTests.swift */; };
 		FEB116F6F3B80337A255B771 /* DexcomTransmitterOpCode.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8F971C723A5915900C3F17D /* DexcomTransmitterOpCode.swift */; };
 		FFB2114DEBE326EE7730D9C3 /* Libre3SensorLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC95CEE9854B691243696072 /* Libre3SensorLifecycle.swift */; };
-		O99A1C000001122005A8C15 /* OttaiDevicePickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = O99A1C000001122005A8C16 /* OttaiDevicePickerView.swift */; };
-		O99A1C000001122005A8C1C /* OttaiScanOnly.swift in Sources */ = {isa = PBXBuildFile; fileRef = O99A1C000001122005A8C1D /* OttaiScanOnly.swift */; };
 		C8BDB13F756A2FDAFC46B664 /* OttaiRegionalTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 091CF409B62202405425C21E /* OttaiRegionalTransport.swift */; };
 		83E895E05EE6AAE089C134A9 /* OttaiSecureHTTP.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67F0D292F421EA4F0DD39F2B /* OttaiSecureHTTP.swift */; };
 		F88C1218F89657CE33CBDAFE /* OttaiAccountSensors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45D8160E99F5AE21A23E4E11 /* OttaiAccountSensors.swift */; };
@@ -1057,9 +1061,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		29F213F1D8851504C41893ED /* GS1Native.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "GS1Native.xcframework"; path = "Vendor/GS1Native/GS1Native.xcframework"; sourceTree = SOURCE_ROOT; };
 		FC4C2CD24CCBDD12F4AAD88F /* OttaiParser.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OttaiParser.swift; sourceTree = "<group>"; };
-		O99A1C000001122005A8C16 /* OttaiDevicePickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OttaiDevicePickerView.swift; sourceTree = "<group>"; };
-		O99A1C000001122005A8C1D /* OttaiScanOnly.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OttaiScanOnly.swift; sourceTree = "<group>"; };
 		008DD8362C3D359B7EA1B6BD /* Libre3PairingFlow.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Libre3PairingFlow.swift; sourceTree = "<group>"; };
 		047632E443AF0F5D48EC5CE9 /* Libre3AESCCM.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Libre3AESCCM.swift; sourceTree = "<group>"; };
 		05272484BD024BDAAA341C1C /* TherapyMetricsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TherapyMetricsSettingsView.swift; sourceTree = "<group>"; };
@@ -1489,6 +1492,11 @@
 		80CB0A0412324311A4F99E46 /* xDrip/Constants/TherapyMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = xDrip/Constants/TherapyMetrics.swift; sourceTree = SOURCE_ROOT; };
 		8126C1F544B64F25B85C244C /* AidexKeyExchange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AidexKeyExchange.swift; sourceTree = "<group>"; };
 		85A7717D78964632A23ADC3A /* CGMAidexTransmitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CGMAidexTransmitter.swift; sourceTree = "<group>"; };
+		B638B38728A1D5D7BA46549B /* CGMSibionicsTransmitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CGMSibionicsTransmitter.swift; sourceTree = "<group>"; };
+		285077DBDB09AB59E86170F5 /* GS1PeripheralScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GS1PeripheralScanner.swift; sourceTree = "<group>"; };
+		2FCB9A6EC2AB2187F154B355 /* GS1Protocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GS1Protocol.swift; sourceTree = "<group>"; };
+		C57ED56EC2693E2BE343F5D9 /* GS1Session.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GS1Session.swift; sourceTree = "<group>"; };
+		B4DFB932D5C13544F19F2985 /* SibionicsCN.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SibionicsCN.swift; sourceTree = "<group>"; };
 		865572E2A097E6DBB6175393 /* CGMOttaiTransmitter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CGMOttaiTransmitter.swift; sourceTree = "<group>"; };
 		88036E8AE21152391912A037 /* CGMLibre3Transmitter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CGMLibre3Transmitter.swift; sourceTree = "<group>"; };
 		885DB73DA65249A98F40C9DE /* en */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.strings; name = en; path = xDrip/Storyboards/en.lproj/Libre3.strings; sourceTree = SOURCE_ROOT; };
@@ -2395,6 +2403,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F81F3C4225D1D91300520946 /* CoreNFC.framework in Frameworks */,
+				DC75E38AD2C1C9CD3E1A5895 /* GS1Native.xcframework in Frameworks */,
 				F821CF9722AE589E005C1E43 /* HealthKit.framework in Frameworks */,
 				47DE41AA2B860DF00041DA19 /* WatchConnectivity.framework in Frameworks */,
 			);
@@ -2428,7 +2437,6 @@
 				7FA1EB69C25CDA25ADA2E74D /* OttaiCrypto.swift */,
 				187BAE275FDE4E081346A887 /* OttaiBleAuth.swift */,
 				FC4C2CD24CCBDD12F4AAD88F /* OttaiParser.swift */,
-				O99A1C000001122005A8C1D /* OttaiScanOnly.swift */,
 				6BDDE308B4B89A171F4D37B1 /* OttaiFormula.swift */,
 				5ADD70B4E5132F31AFDCDE39 /* OttaiOutputFilter.swift */,
 				24908660CE15BFB909B35AC2 /* OttaiMethodDefaults.swift */,
@@ -2863,7 +2871,6 @@
 				A1D1EC770000000000000001 /* DirectWatchStatusBanner.swift */,
 				4C20000D2F65000100000001 /* TransmitterReadSuccessView.swift */,
 				8D0054E03048BF6B00DEF850 /* AidexDevicePickerView.swift */,
-				O99A1C000001122005A8C16 /* OttaiDevicePickerView.swift */,
 			);
 			path = BluetoothPeripherals;
 			sourceTree = "<group>";
@@ -3242,6 +3249,17 @@
 				965EFAF230664A63AF0AD5DD /* AidexProtocol */,
 			);
 			path = Aidex;
+			sourceTree = "<group>";
+		};
+		5D5C8954D19C9DA55666CA11 /* Sibionics */ = {
+			isa = PBXGroup;
+			children = (
+				B638B38728A1D5D7BA46549B /* CGMSibionicsTransmitter.swift */,
+				285077DBDB09AB59E86170F5 /* GS1PeripheralScanner.swift */,
+				2FCB9A6EC2AB2187F154B355 /* GS1Protocol.swift */,
+				C57ED56EC2693E2BE343F5D9 /* GS1Session.swift */,
+			);
+			path = Sibionics;
 			sourceTree = "<group>";
 		};
 		E4C0061F2B3DE8C100D59303 /* AppIntents */ = {
@@ -4096,6 +4114,7 @@
 				D40C3DA52775438F00111B73 /* TreatmentEntry+CoreDataProperties.swift */,
 				0F9DC54A8DE3925EF7CD5B8C /* Ottai+CoreDataClass.swift */,
 				F0D3DC0FFED93EC7192B8943 /* Ottai+CoreDataProperties.swift */,
+				B4DFB932D5C13544F19F2985 /* SibionicsCN.swift */,
 			);
 			path = classes;
 			sourceTree = "<group>";
@@ -4287,6 +4306,7 @@
 				6D5AA1B8EE1345A92487C156 /* Ottai */,
 				4D7180122FE8000100000001 /* Medtrum */,
 				E2B13B126E91463086F64846 /* Aidex */,
+				5D5C8954D19C9DA55666CA11 /* Sibionics */,
 			);
 			path = CGM;
 			sourceTree = "<group>";
@@ -5096,6 +5116,11 @@
 				5D7CBD39230C4B46AC53F8A4 /* Aidex+CoreDataProperties.swift in Sources */,
 				0605C52C8CB943ECA6BDC200 /* Aidex+BluetoothPeripheral.swift in Sources */,
 				1E8A702686A541C08A49F81F /* CGMAidexTransmitter.swift in Sources */,
+				DE412CF0F134A56A8C0FF4EA /* CGMSibionicsTransmitter.swift in Sources */,
+				26B5BE01BA6798BC713D162D /* GS1PeripheralScanner.swift in Sources */,
+				6893AE0854B7D450EC1AB997 /* GS1Protocol.swift in Sources */,
+				75CEBB0605DCB4BA2232CF29 /* GS1Session.swift in Sources */,
+				40DF5E9E64C7C61723EA168A /* SibionicsCN.swift in Sources */,
 				F4CAB47A926947729CE1D6D0 /* CGMAidexTransmitterDelegate.swift in Sources */,
 				975C93EEE65C452EA91F5464 /* AESCFB.swift in Sources */,
 				0EA5416435B94DDABE981F2D /* AidexCommandBuilder.swift in Sources */,
@@ -5600,8 +5625,6 @@
 				5E654193B5CBF596D6D66001 /* OttaiCrypto.swift in Sources */,
 				E8393C9948F10303A38E7BDA /* OttaiBleAuth.swift in Sources */,
 				13A4747AD828AEAD1B723DFE /* OttaiParser.swift in Sources */,
-				O99A1C000001122005A8C1C /* OttaiScanOnly.swift in Sources */,
-				O99A1C000001122005A8C15 /* OttaiDevicePickerView.swift in Sources */,
 				20F4EB764FB424E5A06F2695 /* OttaiFormula.swift in Sources */,
 				4C1A430E1DFC09DF02914AE6 /* OttaiOutputFilter.swift in Sources */,
 				284B12C5555D9CA475E0D576 /* OttaiMethodDefaults.swift in Sources */,

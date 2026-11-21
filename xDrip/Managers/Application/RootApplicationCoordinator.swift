@@ -2030,8 +2030,8 @@ import AppIntents
             // calibration factor decoded from each packet, so xDrip should not run its own calibrator.
             calibrator = NoCalibrator()
 
-        case .Aidex:
-            // Aidex sends calibrated data — no xDrip-side calibration needed
+        case .Aidex, .sibionicsCN:
+            // These sources send final calibrated data — no xDrip-side calibration needed
             calibrator = NoCalibrator()
 
         }
@@ -2803,6 +2803,8 @@ import AppIntents
             }
             startDate = sensorStartDate ?? startDate
             switch transmitter?.cgmTransmitterType().sensorType() {
+            case .SibionicsCN:
+                duration = 60
             case .Libre:
                 duration = transmitter?.sensorWarmupDurationInMinutes() ?? ConstantsMaster.minimumSensorWarmUpRequiredInMinutes
             case .Dexcom:
@@ -3242,8 +3244,6 @@ extension RootApplicationCoordinator: @preconcurrency CGMTransmitterDelegate {
                 switch cgmTransmitterType {
                 case .dexcomG7:
                     minimumWarmUpRequiredInMinutes = ConstantsMaster.minimumSensorWarmUpRequiredInMinutesDexcomG7
-                case .ottai:
-                    minimumWarmUpRequiredInMinutes = ConstantsMaster.minimumSensorWarmUpRequiredInMinutesOttai
                 case .Aidex:
                     minimumWarmUpRequiredInMinutes = ConstantsAidex.warmupMinutes
                 default:

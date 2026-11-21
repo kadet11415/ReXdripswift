@@ -80,14 +80,24 @@ enum OttaiAccountSensors {
             currentSensor = sensor
         }
         var sensors = currentSensor.map { [$0] } ?? []
-        var note = "Choosing a sensor only saves its ID on this phone. It does not activate, bind, unbind or connect a sensor. Use Fetch sensor from cloud separately."
+        var note = "Choosing a sensor only saves its ID on this phone. It does not activate, bind, unbind or connect a sensor. For a previously activated sensor, restore keys from the cloud; a new unused Global sensor must use Check new Global sensor first. To release a previous binding, use Unlink previous cloud sensor with explicit confirmation."
         if let history {
             // Any failed history lookup is an error, even if it included data; never hide an expired session.
             let body = try checked(history)
             guard let data = try payload(body) else {
                 throw OttaiAccountSensorsError(message: "The sensor history response has an unsupported format.")
             }
-            let rows = (data["items"] ?? data["list"] ?? data["records"]) as? [[String: Any]] ?? []
+            // Server returns items:null for an empty account; treat null/missing as an empty list,
+            // but still reject a populated-but-malformed payload.
+            let rawRows = data["items"] ?? data["list"] ?? data["records"]
+            let rows: [[String: Any]]
+            if rawRows is NSNull || rawRows == nil {
+                rows = []
+            } else if let arr = rawRows as? [[String: Any]] {
+                rows = arr
+            } else {
+                throw OttaiAccountSensorsError(message: "The sensor history response has an unsupported format.")
+            }
             var seen = Set(sensors.map(\.mac))
             for row in rows {
                 if let sensor = parseSensor(row, bound: false), seen.insert(sensor.mac).inserted { sensors.append(sensor) }

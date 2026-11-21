@@ -609,6 +609,8 @@ struct SensorManagementView: View {
             }
         case .Medtrum:
             warmupMinutes = nil
+        case .SibionicsCN:
+            warmupMinutes = (elapsedMinutes ?? 0) < 60 ? 60 : nil
         case .Aidex:
             warmupMinutes = (elapsedMinutes ?? 0) < ConstantsAidex.warmupMinutes ? ConstantsAidex.warmupMinutes : nil
         case .none:

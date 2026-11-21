@@ -46,6 +46,9 @@ enum BluetoothPeripheralType: String, CaseIterable {
     /// Aidex / Linx / LumiFlex CGM sensor
     case AidexType = "AiDex/Linx/Lumiflex"
 
+    /// Sibionics GS1 CN 14-day CGM sensor
+    case SibionicsCNType = "Sibionics GS1 CN (14-day)"
+
     func createNewBluetoothPeripheral(withAddress address: String, withName name: String, nsManagedObjectContext: NSManagedObjectContext) -> BluetoothPeripheral {
         
         switch self {
@@ -97,6 +100,9 @@ enum BluetoothPeripheralType: String, CaseIterable {
         case .AidexType:
             return Aidex(address: address, name: name, alias: nil, nsManagedObjectContext: nsManagedObjectContext)
 
+        case .SibionicsCNType:
+            return SibionicsCN(address: address, name: name, alias: nil, nsManagedObjectContext: nsManagedObjectContext)
+
         }
 
     }
@@ -109,7 +115,7 @@ enum BluetoothPeripheralType: String, CaseIterable {
         case .M5StackType, .M5StickCType:
             return .M5Stack
             
-        case .DexcomType, .BubbleType, .MiaoMiaoType, .Libre2Type, .Libre3Type, .DexcomG7Type, .OttaiType, .MedtrumTouchCareNanoType, .AidexType:
+        case .DexcomType, .BubbleType, .MiaoMiaoType, .Libre2Type, .Libre3Type, .DexcomG7Type, .OttaiType, .MedtrumTouchCareNanoType, .AidexType, .SibionicsCNType:
             return .CGM
 
         case .Libre3HeartBeatType, .DexcomG7HeartBeatType, .OmniPodHeartBeatType:

@@ -1,16 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Global Android 1.38.0 / 261721 passwordLogin contract, libapp.so SHA256
-// a62a948d17f4d45ff69e333181f2ee62877ba3131c5f29c921fae885d96ee743.
-// Verified with native login + own sensor reads + material decryption on 2026-11-02.
+// Global phone identity and login ported from ctqvva/JugglucoNG
+// 758d35f006c4f1f9cb48ae0b296b5249c4bab1ed and 923021c48a160c71555c7ec3c9d548314cc74a0c.
+// The issuing identity must remain the same for login, validation, server auth and bind.
+// Legacy 1.38 M8 read helpers retain their original identity for compatibility tests.
 import Foundation
 
 enum OttaiGlobalContract {
     typealias Failure = OttaiCloudClient.CloudFailure
     typealias Login = OttaiCloudClient.LoginResult
-    static let appName = "ottai-seas"
+    static let appName = "ottai"
+    static let legacyAppName = "ottai-seas"
     static let packageName = "com.ottai.seas"
-    static let loginURL = OttaiConstants.apiBaseGlobal + OttaiConstants.prefix + "/user/login/variousLogin"
-    static let deviceIDPrefix = "ottai-seas:a:g:"
+    static let loginURL = OttaiConstants.apiBaseGlobal + OttaiConstants.prefix + "/user/login/thirdLoginByPassword"
+    static let usernameLoginURL = OttaiConstants.apiBaseGlobal + OttaiConstants.prefix + "/user/login/variousLogin"
+    static let deviceIDPrefix = "ottai:a:g:"
+    static let legacyDeviceIDPrefix = "ottai-seas:a:g:"
 
     struct Request {
         let method: String
@@ -22,8 +26,16 @@ enum OttaiGlobalContract {
     typealias Send = (Request) -> OttaiCloudClient.RequestResult
 
     static func validDeviceID(_ value: String) -> Bool {
-        guard value.hasPrefix(deviceIDPrefix) else { return false }
-        let suffix = value.dropFirst(deviceIDPrefix.count)
+        validDeviceID(value, prefix: deviceIDPrefix)
+    }
+
+    static func validLegacyDeviceID(_ value: String) -> Bool {
+        validDeviceID(value, prefix: legacyDeviceIDPrefix)
+    }
+
+    private static func validDeviceID(_ value: String, prefix: String) -> Bool {
+        guard value.hasPrefix(prefix) else { return false }
+        let suffix = value.dropFirst(prefix.count)
         return suffix.count == 32 && suffix.utf8.allSatisfy { (65...90).contains($0) || (48...57).contains($0) }
     }
 
@@ -33,8 +45,24 @@ enum OttaiGlobalContract {
     }
 
     static func headers(deviceID: String, timestamp: Int64, accessToken: String, deviceModel: String) -> [String: String] {
+        // This is the complete common-header identity of the donor's verified
+        // GLOBAL_PHONE route. The secure transport supplies its versionCode and webDeviceId.
         var result: [String: String] = [
             "appName": appName, "packageName": packageName, "deviceId": deviceID,
+            "versionName": "1.1.0", "versionCode": "244301", "ua": "Android_Watch_Ottai_Arc",
+            "timestamp": String(timestamp), "traceId": UUID().uuidString.lowercased(),
+            "country": "zh_CN", "language": Locale.current.language.languageCode?.identifier ?? "en",
+            "timezone": String(TimeZone.current.secondsFromGMT()),
+            "timeZoneName": TimeZone.current.identifier
+        ]
+        if !accessToken.isEmpty { result["Authorization"] = accessToken }
+        return result
+    }
+
+    /// Never reuse an old ottai-seas token with the new ottai identity.
+    static func legacyHeaders(deviceID: String, timestamp: Int64, accessToken: String, deviceModel: String) -> [String: String] {
+        var result: [String: String] = [
+            "appName": legacyAppName, "packageName": packageName, "deviceId": deviceID,
             "versionName": "1.38.0", "versionCode": "261721", "ua": "Android",
             "timestamp": String(timestamp), "traceId": UUID().uuidString.lowercased(),
             "country": "GB", "region": "GB", "language": "en", "unit": "mmol_L",
@@ -51,8 +79,8 @@ enum OttaiGlobalContract {
     static func authInfoRequest(mac: String, deviceID: String, accessToken: String,
                                 timestamp: Int64, deviceModel: String) -> Request? {
         let canonical = OttaiConstants.canonicalSensorId(mac)
-        guard OttaiConstants.looksLikeMac(canonical), validDeviceID(deviceID), !accessToken.isEmpty else { return nil }
-        var h = headers(deviceID: deviceID, timestamp: timestamp, accessToken: accessToken, deviceModel: deviceModel)
+        guard OttaiConstants.looksLikeMac(canonical), validLegacyDeviceID(deviceID), !accessToken.isEmpty else { return nil }
+        var h = legacyHeaders(deviceID: deviceID, timestamp: timestamp, accessToken: accessToken, deviceModel: deviceModel)
         h["productModel"] = "M8"
         return Request(method: "GET", url: OttaiConstants.apiBaseGlobal + OttaiConstants.prefix + "/device/authInfo",
             query: ["mac": canonical, "sign": OttaiCloudClient.globalAuthInfoSign(deviceID: deviceID, timestampMillis: timestamp, mac: canonical)], headers: h)
@@ -81,19 +109,19 @@ enum OttaiGlobalContract {
         return ["data": result]
     }
 
-    /// The production preparation flow for an unused Global M8. Its injected port
-    /// is read-only by construction; preparation can never bind/unbind or start it.
+    /// Legacy 1.38 M8 metadata read. New phone sessions use V3 validation instead.
+    /// Its injected port remains read-only; it can never bind/unbind or start a sensor.
     static func checkedSensor(mac: String, deviceID: String, accessToken: String, deviceModel: String,
                               send: Send, clock: () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1000) }) -> Result<[String: Any], Failure> {
         let canonical = OttaiConstants.canonicalSensorId(mac)
-        guard OttaiConstants.looksLikeMac(canonical), validDeviceID(deviceID), !accessToken.isEmpty else {
+        guard OttaiConstants.looksLikeMac(canonical), validLegacyDeviceID(deviceID), !accessToken.isEmpty else {
             return .failure(Failure(text: "A sensor ID and signed-in Global session are required.", stage: "Check sensor"))
         }
         let ts = clock()
-        var validationHeaders = headers(deviceID: deviceID, timestamp: ts, accessToken: accessToken, deviceModel: deviceModel)
+        var validationHeaders = legacyHeaders(deviceID: deviceID, timestamp: ts, accessToken: accessToken, deviceModel: deviceModel)
         validationHeaders["productModel"] = "M8"
         let validationRequest = Request(method: "GET", url: OttaiConstants.apiBaseGlobal + OttaiConstants.epValidateByMac,
-            query: ["mac": canonical, "signature": OttaiCloudClient.signForProfile(.globalPhone, deviceId: deviceID, ts: ts, canonical)],
+            query: ["mac": canonical, "signature": OttaiCloudClient.signForProfile(.globalPhoneLegacy, deviceId: deviceID, ts: ts, canonical)],
             headers: validationHeaders)
         let validation = send(validationRequest)
         if let failure = validation.failure { return .failure(failure) }
@@ -178,7 +206,24 @@ enum OttaiGlobalContract {
         let plain = "{\"username\":\(username),\"password\":\(secret)}"
         let key = Array("miH5ngQ7z4NZU3JgZFq87Gg6v1Y7YJm9".utf8)
         guard let ciphertext = OttaiCrypto.aesECB(.encrypt, key: key, data: Array(plain.utf8), pkcs7Padded: true) else { return nil }
-        return ["encryptInfo": Data(ciphertext).base64EncodedString(), "apiToken": apiToken, "signature": signature, "type": "2", "phoneCode": ""]
+        // Android Ottai Global phone contract (JugglucoNG 758d35f, globalLoginRequest):
+        // both email/thirdLoginByPassword and username/variousLogin send a fresh
+        // UUID and source=5. Omitting them returns an unsuccessful server response
+        // despite HTTP 200. Do not reuse an identity or retry login implicitly.
+        let requestUUID = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        var body: [String: Any] = [
+            "uuid": requestUUID,
+            "source": 5,
+            "encryptInfo": Data(ciphertext).base64EncodedString(),
+            "apiToken": apiToken,
+            "signature": signature
+        ]
+        if !email.contains("@") {
+            body["type"] = 3
+            body["loginType"] = 3
+            body["username"] = email
+        }
+        return body
     }
 
     /// Native candidate remains local until both own-account read APIs validate it.
@@ -189,7 +234,7 @@ enum OttaiGlobalContract {
         var privateValues = [account, password]
         func failed(_ failure: Failure, stage: String) -> Failure { privateFailure(failure, stage: stage, redacting: privateValues) }
         guard !account.isEmpty, !password.isEmpty, validDeviceID(deviceID) else {
-            return .failure(Failure(text: "Email, password and a valid installation identity are required.", stage: "Global sign-in"))
+            return .failure(Failure(text: "Email or username, password and a valid installation identity are required.", stage: "Global sign-in"))
         }
         func header(_ timestamp: Int64, token: String = "") -> [String: String] {
             headers(deviceID: deviceID, timestamp: timestamp, accessToken: token, deviceModel: deviceModel)
@@ -207,7 +252,8 @@ enum OttaiGlobalContract {
         guard let body = passwordBody(email: account, password: password, apiToken: apiToken, signature: signature) else {
             return .failure(Failure(text: "Could not prepare the encrypted sign-in request.", stage: "Global sign-in"))
         }
-        let loginReply = send(Request(method: "POST", url: loginURL, body: body, headers: header(loginTime)))
+        let endpoint = account.contains("@") ? loginURL : usernameLoginURL
+        let loginReply = send(Request(method: "POST", url: endpoint, body: body, headers: header(loginTime)))
         if let failure = loginReply.failure { return .failure(failed(failure, stage: "Global sign-in")) }
         guard let data = loginReply.body?["data"] as? [String: Any] ?? loginReply.body?["result"] as? [String: Any] else {
             return .failure(Failure(text: "The server returned no account data.", stage: "Global sign-in"))
@@ -220,6 +266,7 @@ enum OttaiGlobalContract {
         let current = send(Request(method: "GET", url: OttaiConstants.apiBaseGlobal + OttaiConstants.epGetBindDevice, headers: header(clock(), token: candidate.accessToken)))
         if let failure = current.failure { return .failure(failed(failure, stage: "Global account validation")) }
         do { _ = try OttaiAccountSensors.snapshot(current: .init(body: current.body, failure: nil), history: nil) }
+        catch let error as OttaiAccountSensorsError { return .failure(Failure(text: error.message, stage: "Global account validation")) }
         catch { return .failure(Failure(text: "The account binding response has an unsupported format.", stage: "Global account validation")) }
         let history = send(Request(method: "GET", url: OttaiConstants.apiBaseGlobal + OttaiConstants.epDeviceList,
             query: ["pageSize": "80", "pageNumber": "1"], headers: header(clock(), token: candidate.accessToken)))
@@ -234,6 +281,8 @@ enum OttaiGlobalContract {
             }) {
                 return .failure(Failure(text: "The sensor history contains no supported records.", stage: "Global account validation"))
             }
+        } catch let error as OttaiAccountSensorsError {
+            return .failure(Failure(text: error.message, stage: "Global account validation"))
         } catch {
             return .failure(Failure(text: "The account sensor response has an unsupported format.", stage: "Global account validation"))
         }
