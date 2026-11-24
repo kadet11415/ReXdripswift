@@ -653,6 +653,82 @@ final class OttaiStartupBackfillTests: XCTestCase {
     func testNoLiveRecordGivesNil() {
         XCTAssertNil(CGMOttaiTransmitter.startupBackfillRange(liveDataNo: 0, lastDataNo: 0, deliveredDataNo: 0))
     }
+
+    // MARK: - materials import/export (offline, JugglucoNG mirror)
+
+    private func eraseOttaiSensorMaterials(_ id: String) {
+        OttaiRegistry.removeSensor(id)
+        UserDefaults.standard.removeObject(forKey: "ottai_accepted_max_active_" + id)
+        UserDefaults.standard.removeObject(forKey: "ottai_sensors")
+    }
+
+    func testMaterialsExportImportRoundTripWorksOnACleanDevice() throws {
+        let id = "6CA04230E260"
+        defer { eraseOttaiSensorMaterials(id) }
+        var m = OttaiRegistry.DeviceMaterials()
+        m.keyAHex = String(repeating: "01", count: 96)
+        m.method = "V0"
+        m.coefficient = "6"
+        m.activeTimeMs = 1_750_000_000_000
+        m.activeExpireTimeMs = 30 * 86_400_000
+        m.retainTimeMs = 172_800_000
+        m.preheatPeriodMs = 60 * 60_000
+        m.deviceVersion = "E1.2.6(V1.7.SH2616.1),STDRD"
+        m.deviceId = 7
+        m.calibrationValueK = 1.5
+        m.calibrationValueB = -2.25
+        OttaiRegistry.saveMaterials(sensorId: id, m)
+        OttaiRegistry.saveAcceptedMaxActive(id, 25 * 86_400_000)
+        let json = try XCTUnwrap(OttaiRegistry.exportJson(sensorId: id, bleAddress: "AA:BB:CC:DD:EE:FF", displayName: "Ottai test"))
+        XCTAssertFalse(json.isEmpty)
+
+        // Simulate a fresh device: no materials, no provisional start, no accepted lifetime.
+        eraseOttaiSensorMaterials(id)
+        let imported = try XCTUnwrap(OttaiRegistry.importJson(json))
+        XCTAssertEqual(imported, id)
+        let back = OttaiRegistry.loadMaterials(sensorId: id)
+        XCTAssertEqual(back.keyAHex, m.keyAHex)
+        XCTAssertEqual(back.method, "V0")
+        XCTAssertEqual(back.coefficient, "6")
+        XCTAssertEqual(back.activeTimeMs, m.activeTimeMs)
+        XCTAssertEqual(back.activeExpireTimeMs, m.activeExpireTimeMs)
+        XCTAssertEqual(back.retainTimeMs, m.retainTimeMs)
+        XCTAssertEqual(back.preheatPeriodMs, m.preheatPeriodMs)
+        XCTAssertEqual(back.deviceVersion, m.deviceVersion)
+        XCTAssertEqual(back.deviceId, 7)
+        XCTAssertEqual(back.calibrationValueK, 1.5)
+        XCTAssertEqual(back.calibrationValueB, -2.25)
+        XCTAssertEqual(OttaiRegistry.loadAcceptedMaxActive(id), 25 * 86_400_000)
+        XCTAssertEqual(OttaiRegistry.loadProvisionalActiveTime(id), 0)
+        XCTAssertNotNil(OttaiRegistry.findRecord(id))
+    }
+
+    func testImportIgnoresAForeignProvisionalStart() {
+        let id = "6CA04230E262"
+        defer { eraseOttaiSensorMaterials(id) }
+        let keyA = String(repeating: "03", count: 96)
+        let doc = """
+        {"v":1,"sensorId":"6CA04230E262","keyAHex":"\(keyA)","method":"V0","coefficient":"6","activeTimeMs":1750000000000,"provisionalActiveTimeMs":987654}
+        """
+        XCTAssertNotNil(OttaiRegistry.importJson(doc))
+        // The foreign guessed start must not arrive as this device's activation start.
+        XCTAssertEqual(OttaiRegistry.loadProvisionalActiveTime(id), 0)
+    }
+
+    func testImportRejectsUnusableDocuments() {
+        let id = "6CA04230E261"
+        defer { eraseOttaiSensorMaterials(id) }
+        let shortKeyA = String(repeating: "02", count: 94)
+        XCTAssertNil(OttaiRegistry.importJson("""
+        {"v":1,"sensorId":"6CA04230E261","keyAHex":"\(shortKeyA)","method":"V0"}
+        """))
+        XCTAssertNil(OttaiRegistry.importJson("""
+        {"v":1,"sensorId":"ZZZ","keyAHex":"\(String(repeating: "02", count: 192))"}
+        """))
+        XCTAssertNil(OttaiRegistry.importJson("not json at all"))
+        // A sensor without stored keys has nothing to export.
+        XCTAssertNil(OttaiRegistry.exportJson(sensorId: id, bleAddress: "", displayName: ""))
+    }
 }
 
 private final class OttaiDeliveryDelegateSpy: CGMTransmitterDelegate, BluetoothTransmitterDelegate {

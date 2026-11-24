@@ -612,6 +612,84 @@ enum OttaiRegistry {
         d.string(forKey: "ottai_lifetime_status_" + canonical(id))
     }
 
+    // MARK: - materials import/export (offline, JugglucoNG mirror)
+
+    /// Export the stored materials as a portable JSON document (v1).
+    /// Mirrors JugglucoNG exportJson: the file carries the sensor's Bluetooth keys, so
+    /// another device can connect and activate without any server or login.
+    /// provisionalActiveTimeMs is deliberately NOT exported: a foreign guessed start would
+    /// arrive as a wrong start on the importing device.
+    static func exportJson(sensorId: String, bleAddress: String, displayName: String) -> String? {
+        let id = canonical(sensorId)
+        let m = loadMaterials(sensorId: id)
+        guard !m.keyAHex.isEmpty else { return nil }
+        var object: [String: Any] = [
+            "v": 1,
+            "sensorId": id,
+            "bleAddress": bleAddress,
+            "displayName": displayName,
+            "keyAHex": m.keyAHex,
+            "method": m.method,
+            "coefficient": m.coefficient,
+            "activeTimeMs": NSNumber(value: m.activeTimeMs),
+            "activeExpireTimeMs": NSNumber(value: m.activeExpireTimeMs),
+            "acceptedMaxActiveMs": NSNumber(value: loadAcceptedMaxActive(id)),
+            "retainTimeMs": NSNumber(value: m.retainTimeMs),
+            "preheatPeriodMs": NSNumber(value: m.preheatPeriodMs),
+            "deviceVersion": m.deviceVersion,
+            "deviceId": m.deviceId
+        ]
+        if let k = m.calibrationValueK { object["calibrationValueK"] = k }
+        if let b = m.calibrationValueB { object["calibrationValueB"] = b }
+        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]),
+              let text = String(data: data, encoding: .utf8) else { return nil }
+        return text
+    }
+
+    /// Import a portable materials JSON document (v1) returned by exportJson.
+    /// Mirrors JugglucoNG importJson: keyAHex must decode to exactly six 16-byte auth keys;
+    /// a foreign provisionalActiveTimeMs is ignored rather than adopted.
+    /// Returns the canonical sensor id, or nil when the document is unusable.
+    @discardableResult
+    static func importJson(_ json: String) -> String? {
+        guard let data = json.data(using: .utf8),
+              let obj = (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])) as? [String: Any] else { return nil }
+        let rawId = obj["sensorId"] as? String ?? ""
+        let id = OttaiConstants.canonicalSensorId(rawId)
+        guard !id.isEmpty,
+              let keyA = obj["keyAHex"] as? String, OttaiCrypto.parseAuthKeys(keyA) != nil else { return nil }
+        let calibrationK = ((obj["calibrationValueK"] as? NSNumber)?.doubleValue)
+        let calibrationB = ((obj["calibrationValueB"] as? NSNumber)?.doubleValue)
+        let materials = DeviceMaterials(
+            keyAHex: keyA,
+            method: obj["method"] as? String ?? "",
+            coefficient: obj["coefficient"] as? String ?? "",
+            activeTimeMs: normalizeOttaiActiveTimeMs(jsonInt64(obj, "activeTimeMs")),
+            deviceVersion: obj["deviceVersion"] as? String ?? "",
+            deviceId: (obj["deviceId"] as? NSNumber)?.intValue ?? 0,
+            activeExpireTimeMs: jsonInt64(obj, "activeExpireTimeMs"),
+            retainTimeMs: jsonInt64(obj, "retainTimeMs"),
+            preheatPeriodMs: jsonInt64(obj, "preheatPeriodMs"),
+            calibrationValueK: calibrationK.flatMap { $0.isFinite ? $0 : nil },
+            calibrationValueB: calibrationB.flatMap { $0.isFinite ? $0 : nil }
+        )
+        // saveMaterials sanitizes activeExpire and resolves the method default.
+        guard saveMaterials(sensorId: id, materials) else { return nil }
+        // A foreign guessed start must never arrive as this device's activation start.
+        saveProvisionalActiveTime(id, 0)
+        saveAcceptedMaxActive(id, jsonInt64(obj, "acceptedMaxActiveMs"))
+        ensureSensorRecord(
+            sensorId: id,
+            address: obj["bleAddress"] as? String ?? "",
+            displayName: obj["displayName"] as? String ?? ""
+        )
+        return id
+    }
+
+    private static func jsonInt64(_ object: [String: Any], _ key: String) -> Int64 {
+        (object[key] as? NSNumber)?.int64Value ?? 0
+    }
+
     static func loadLastDataNo(_ id: String) -> Int {
         d.integer(forKey: K.lastDataNoPrefix + canonical(id))
     }

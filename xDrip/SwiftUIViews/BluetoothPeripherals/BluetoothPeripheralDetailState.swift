@@ -39,6 +39,10 @@ final class BluetoothPeripheralDetailState: NSObject, ObservableObject {
     @Published var pendingAlert: BluetoothPeripheralDetailAlert?
     /// Discovered Aidex sensors awaiting user selection — set by aidexDidFinishScanning.
     @Published var discoveredAidexDevices: [DiscoveredAidexSensor]? = nil
+    /// The Ottai materials file to share after export (standard iOS share sheet).
+    @Published var ottaiShareItem: OttaiMaterialsShareItem?
+    /// Presents the file importer for the Ottai materials JSON (import).
+    @Published var ottaiImportPresented = false
 
     // MARK: - Dependencies
 
@@ -2231,6 +2235,12 @@ struct BluetoothPeripheralDetailAlert: Identifiable {
     }
 }
 
+/// The Ottai materials file presented in the export share sheet.
+struct OttaiMaterialsShareItem: Identifiable {
+    let url: URL
+    var id: URL { url }
+}
+
 /// Text-entry route supplied by transmitter-specific configuration logic.
 struct BluetoothPeripheralTextEntry: Identifiable {
     // Setup opens the next screen instead of closing the entry screen.
@@ -3280,6 +3290,23 @@ private extension BluetoothPeripheralDetailState {
                 detail: "Use another sensor ID", showsDisclosure: true, isEnabled: !busy,
                 action: { [weak self] in self?.requestOttaiCloudId(for: ottai) }))
         }
+        let storedMaterials = OttaiRegistry.loadMaterials(sensorId: sensorId)
+        if storedMaterials.hasAll {
+            sensorRows.append(row(
+                id: "ottai-export-materials",
+                title: "Export materials",
+                detail: "A portable file with the sensor's Bluetooth keys; another device can import it without a server",
+                detailLineLimit: 3, showsDisclosure: true, isEnabled: !busy,
+                action: { [weak self] in self?.requestOttaiExportMaterials(for: ottai) }
+            ))
+        }
+        sensorRows.append(row(
+            id: "ottai-import-materials",
+            title: "Import materials",
+            detail: "Choose a materials file exported from another device; no server or login is needed here",
+            detailLineLimit: 3, showsDisclosure: true, isEnabled: !busy,
+            action: { [weak self] in self?.requestOttaiImportMaterials(for: ottai) }
+        ))
         let sensorSection = BluetoothPeripheralDetailSection(
             id: "ottai-sensor", title: "Sensor", rows: sensorRows
         )
@@ -5083,5 +5110,76 @@ private extension BluetoothPeripheralDetailState {
         } catch {
             pendingAlert = BluetoothPeripheralDetailAlert(title: "Could not save GS1", message: "This Bluetooth device may already be configured. Open its existing card.")
         }
+    }
+}
+
+// MARK: - Ottai materials import/export (offline, JugglucoNG mirror)
+
+extension BluetoothPeripheralDetailState {
+
+    func requestOttaiExportMaterials(for ottai: Ottai) {
+        let sensorId = ottaiCloudId(for: ottai)
+        guard !sensorId.isEmpty else {
+            showInfo(title: "Nothing to export", message: "Enter the sensor's ID first, then export its materials.")
+            return
+        }
+        let record = OttaiRegistry.findRecord(sensorId)
+        guard let json = OttaiRegistry.exportJson(
+                sensorId: sensorId,
+                bleAddress: record?.address ?? "",
+                displayName: record?.displayName ?? ""
+            ),
+            let data = json.data(using: .utf8) else {
+            showInfo(title: "Nothing to export",
+                     message: "This sensor has no stored Bluetooth keys yet. Fetch its materials first.")
+            return
+        }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("ottai-\(sensorId).json")
+        do {
+            try data.write(to: url)
+        } catch {
+            showInfo(title: "Export failed", message: "The file could not be written: \(error.localizedDescription)")
+            return
+        }
+        ottaiShareItem = OttaiMaterialsShareItem(url: url)
+    }
+
+    func finishSharingOttaiMaterials(completed: Bool, url: URL) {
+        ottaiShareItem = nil
+        guard completed else {
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
+        // Keep the file for re-sharing; the next export overwrites it.
+    }
+
+    func requestOttaiImportMaterials(for ottai: Ottai) {
+        guard ottaiBusyMessage == nil else { return }
+        ottaiImportPresented = true
+    }
+
+    func ottaiImportFinished(_ result: Result<[URL], Error>) {
+        guard case .success(let urls) = result, let url = urls.first else { return }
+        let json: String
+        do {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            json = try String(contentsOf: url, encoding: .utf8)
+        } catch {
+            showInfo(title: "Import failed", message: "The file could not be read: \(error.localizedDescription)")
+            return
+        }
+        guard let importedId = OttaiRegistry.importJson(json) else {
+            showInfo(title: "Import failed",
+                     message: "The file is not a valid Ottai materials document. Export one from the device that has the sensor's keys.")
+            return
+        }
+        if let receiver = (bluetoothPeripheral as? Ottai), (receiver.ottaiSensorId ?? "").isEmpty {
+            receiver.ottaiSensorId = importedId
+            coreDataManager.saveChanges()
+        }
+        showInfo(title: "Materials imported",
+                 message: "Sensor \(importedId) now has local keys on this phone. Continue with the connect step; no server or login is needed.")
+        refresh()
     }
 }

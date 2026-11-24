@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Native detail screen for an existing or newly configured Bluetooth peripheral.
 struct BluetoothPeripheralDetailView: View {
@@ -153,6 +154,18 @@ struct BluetoothPeripheralDetailView: View {
                     onCancel: { state.discoveredAidexDevices = nil }
                 )
             }
+        }
+        .sheet(item: $state.ottaiShareItem) { item in
+            OttaiMaterialsShareSheet(url: item.url) { completed, error in
+                state.finishSharingOttaiMaterials(completed: completed, url: item.url)
+            }
+        }
+        .fileImporter(
+            isPresented: $state.ottaiImportPresented,
+            allowedContentTypes: [.json, .plainText],
+            allowsMultipleSelection: false
+        ) { result in
+            state.ottaiImportFinished(result)
         }
         .frame(maxWidth: UIDevice.current.userInterfaceIdiom == .pad ? 780 : .infinity)
         .frame(maxWidth: .infinity)
@@ -566,4 +579,20 @@ private struct BluetoothPeripheralDetailRowView: View {
             )
         }
     }
+}
+
+/// Standard iOS share sheet for the exported Ottai materials file.
+private struct OttaiMaterialsShareSheet: UIViewControllerRepresentable {
+    let url: URL
+    let completion: (Bool, Error?) -> Void
+
+    func makeUIViewController(context _: Context) -> UIActivityViewController {
+        let controller = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        controller.completionWithItemsHandler = { _, completed, _, error in
+            completion(completed, error)
+        }
+        return controller
+    }
+
+    func updateUIViewController(_: UIActivityViewController, context _: Context) {}
 }
